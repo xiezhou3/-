@@ -28,7 +28,7 @@ export async function GET(req: Request) {
   const expected = store.get("feishu_oauth_state")?.value;
   store.delete("feishu_oauth_state");
 
-  const settings = new URL("/settings", SITE);
+  const settings = new URL("/settings/security", SITE);
   if (!code || !state || !expected || state !== expected) {
     settings.searchParams.set("feishu", "state_error");
     return NextResponse.redirect(settings);

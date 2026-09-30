@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { db } from "@/db";
 import { users } from "@/db/schema";
 import { eq, sql } from "drizzle-orm";
-import { hashPassword } from "./password";
+import { hashPassword, verifyPassword } from "./password";
 import { exchangeOAuthCode } from "./feishu";
 import { AppError, isUniqueViolation } from "./errors";
 
@@ -30,6 +30,44 @@ export async function createUser(input: {
     if (isUniqueViolation(e)) throw new AppError("该邮箱已被注册");
     throw e;
   }
+}
+
+export async function updateProfile(userId: string, input: { name: string }) {
+  const name = input.name.trim();
+  if (!name) throw new AppError("请填写姓名");
+  if (name.length > 50) throw new AppError("姓名最长 50 位");
+
+  const [user] = await db
+    .update(users)
+    .set({ name })
+    .where(eq(users.id, userId))
+    .returning({ id: users.id, email: users.email, name: users.name });
+  if (!user) throw new AppError("用户不存在");
+  return user;
+}
+
+export async function changePassword(
+  userId: string,
+  input: { currentPassword: string; newPassword: string },
+) {
+  if (!input.currentPassword) throw new AppError("请输入当前密码");
+  if (input.newPassword.length < 8) throw new AppError("新密码至少 8 位");
+  if (input.newPassword.length > 64) throw new AppError("新密码最长 64 位");
+
+  const [user] = await db
+    .select({ email: users.email, passwordHash: users.passwordHash })
+    .from(users)
+    .where(eq(users.id, userId));
+  if (!user) throw new AppError("用户不存在");
+  if (user.email.endsWith("@feishu.local")) {
+    throw new AppError("该账号通过飞书创建，请使用飞书登录");
+  }
+
+  const valid = await verifyPassword(input.currentPassword, user.passwordHash);
+  if (!valid) throw new AppError("当前密码不正确");
+
+  const passwordHash = await hashPassword(input.newPassword);
+  await db.update(users).set({ passwordHash }).where(eq(users.id, userId));
 }
 
 // 绑定当前用户的飞书身份。open_id 唯一——已被他人绑定则转译友好错误。

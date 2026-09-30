@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { createUser } from "@/lib/user";
+import { changePassword, createUser, updateProfile } from "@/lib/user";
 import { verifyPassword } from "@/lib/password";
 import { AppError } from "@/lib/errors";
 import { resetDb } from "./helpers";
@@ -78,5 +78,116 @@ describe("createUser", () => {
     await expect(
       createUser({ email: "ZHOU@example.com", password: "password123", name: "乙" }),
     ).rejects.toThrow("该邮箱已被注册");
+  });
+});
+
+describe("updateProfile", () => {
+  beforeEach(resetDb);
+
+  it("去除姓名首尾空格，且只更新目标用户", async () => {
+    const target = await createUser({
+      email: "target@example.com",
+      password: "password123",
+      name: "旧姓名",
+    });
+    const other = await createUser({
+      email: "other@example.com",
+      password: "password123",
+      name: "其他用户",
+    });
+
+    const updated = await updateProfile(target.id, { name: "  新姓名  " });
+    expect(updated.name).toBe("新姓名");
+
+    const [targetRow] = await db.select().from(users).where(eq(users.id, target.id));
+    const [otherRow] = await db.select().from(users).where(eq(users.id, other.id));
+    expect(targetRow.name).toBe("新姓名");
+    expect(otherRow.name).toBe("其他用户");
+  });
+
+  it("拒绝空姓名和超过 50 位的姓名", async () => {
+    const user = await createUser({
+      email: "validation@example.com",
+      password: "password123",
+      name: "原名",
+    });
+
+    await expect(updateProfile(user.id, { name: "   " })).rejects.toThrow("请填写姓名");
+    await expect(updateProfile(user.id, { name: "甲".repeat(51) })).rejects.toThrow(
+      "姓名最长 50 位",
+    );
+  });
+});
+
+describe("changePassword", () => {
+  beforeEach(resetDb);
+
+  it("当前密码错误时不修改原哈希", async () => {
+    const user = await createUser({
+      email: "wrong-current@example.com",
+      password: "password123",
+      name: "甲",
+    });
+    const [before] = await db.select().from(users).where(eq(users.id, user.id));
+
+    await expect(
+      changePassword(user.id, {
+        currentPassword: "wrong-password",
+        newPassword: "new-password123",
+      }),
+    ).rejects.toThrow("当前密码不正确");
+
+    const [after] = await db.select().from(users).where(eq(users.id, user.id));
+    expect(after.passwordHash).toBe(before.passwordHash);
+  });
+
+  it("当前密码正确时更新哈希，旧密码失效、新密码生效", async () => {
+    const user = await createUser({
+      email: "change-password@example.com",
+      password: "password123",
+      name: "甲",
+    });
+
+    await changePassword(user.id, {
+      currentPassword: "password123",
+      newPassword: "new-password123",
+    });
+
+    const [after] = await db.select().from(users).where(eq(users.id, user.id));
+    expect(await verifyPassword("password123", after.passwordHash)).toBe(false);
+    expect(await verifyPassword("new-password123", after.passwordHash)).toBe(true);
+  });
+
+  it("校验新密码长度边界", async () => {
+    const user = await createUser({
+      email: "password-bounds@example.com",
+      password: "password123",
+      name: "甲",
+    });
+
+    await expect(
+      changePassword(user.id, { currentPassword: "password123", newPassword: "1234567" }),
+    ).rejects.toThrow("新密码至少 8 位");
+    await expect(
+      changePassword(user.id, {
+        currentPassword: "password123",
+        newPassword: "x".repeat(65),
+      }),
+    ).rejects.toThrow("新密码最长 64 位");
+  });
+
+  it("飞书占位账号不能修改本地密码", async () => {
+    const user = await createUser({
+      email: "ou_managed@feishu.local",
+      password: "password123",
+      name: "飞书用户",
+    });
+
+    await expect(
+      changePassword(user.id, {
+        currentPassword: "password123",
+        newPassword: "new-password123",
+      }),
+    ).rejects.toThrow("该账号通过飞书创建，请使用飞书登录");
   });
 });

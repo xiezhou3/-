@@ -32,6 +32,7 @@ import {
   type ChangeEvent,
   type DragEvent,
 } from "react";
+import { nanoid } from "nanoid";
 import {
   filterProjectFiles,
   formatFileDuration,
@@ -150,7 +151,7 @@ export function ProjectFilesLibrary({
     const nextUploads = selectedFiles.map((file) => {
       const kind = resolveProjectFileKind(file.name, file.type, uploadKind);
       return {
-        id: crypto.randomUUID(),
+        id: nanoid(),
         file,
         name: file.name,
         sizeBytes: file.size,
