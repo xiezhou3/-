@@ -51,6 +51,7 @@ function Column({
   tasks,
   projectId,
   canWrite,
+  canEdit,
   currentUserId,
   isAdmin,
   members,
@@ -65,6 +66,7 @@ function Column({
   tasks: BoardTask[];
   projectId: string;
   canWrite: boolean;
+  canEdit: boolean;
   currentUserId: string;
   isAdmin: boolean;
   members: Option[];
@@ -129,7 +131,7 @@ function Column({
             key={t.id}
             task={t}
             projectId={projectId}
-            canWrite={canWrite}
+            canEdit={canEdit}
             canDrag={canDragTask(column, t, currentUserId, isAdmin)}
             members={members}
             milestones={milestones}
@@ -148,6 +150,7 @@ export function Board({
   tasks,
   groupBy,
   canWrite,
+  canEdit,
   currentUserId,
   isAdmin,
   members,
@@ -160,6 +163,7 @@ export function Board({
   tasks: BoardTask[];
   groupBy: GroupBy;
   canWrite: boolean;
+  canEdit: boolean;
   currentUserId: string;
   isAdmin: boolean;
   members: Option[];
@@ -246,6 +250,7 @@ export function Board({
             tasks={optimisticTasks.filter((t) => col.matches(t))}
             projectId={projectId}
             canWrite={canWrite}
+            canEdit={canEdit}
             currentUserId={currentUserId}
             isAdmin={isAdmin}
             members={members}

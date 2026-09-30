@@ -26,9 +26,9 @@ async function scene() {
 describe("completionNote", () => {
   beforeEach(resetDb);
   it("可写入完成情况", async () => {
-    const { student, project } = await scene();
+    const { owner, student, project } = await scene();
     const t = await createTask(student.id, project.id, { title: "甲" });
-    const u = await updateTask(student.id, t.id, {
+    const u = await updateTask(owner.id, t.id, {
       status: "done",
       completionNote: "已按计划完成，附实验数据",
     });

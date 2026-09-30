@@ -138,6 +138,7 @@ export default async function ProjectPage({
             labels: t.labels,
           }))}
           canWrite={canWrite}
+          canEdit={isAdmin}
           currentUserId={session.user.id}
           isAdmin={isAdmin}
           members={members}

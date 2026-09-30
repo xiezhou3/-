@@ -108,16 +108,24 @@ describe("createTask", () => {
 describe("updateTask", () => {
   beforeEach(resetDb);
 
-  it("student 可改状态与负责人", async () => {
+  it("管理员可改状态与负责人", async () => {
     const { owner, student, project } = await scene();
     const t = await createTask(student.id, project.id, { title: "任务" });
-    const updated = await updateTask(student.id, t.id, {
+    const updated = await updateTask(owner.id, t.id, {
       status: "doing",
-      assigneeId: owner.id,
+      assigneeId: student.id,
     });
     expect(updated.status).toBe("doing");
-    expect(updated.assigneeId).toBe(owner.id);
+    expect(updated.assigneeId).toBe(student.id);
     expect(updated.updatedAt.getTime()).toBeGreaterThanOrEqual(t.updatedAt.getTime());
+  });
+
+  it("普通成员不能编辑任务", async () => {
+    const { owner, student, project } = await scene();
+    const t = await createTask(owner.id, project.id, { title: "任务" });
+    await expect(updateTask(student.id, t.id, { status: "doing" })).rejects.toThrow(
+      "只有项目管理员可以编辑任务",
+    );
   });
 
   it("可替换任务的多个负责人", async () => {
@@ -138,7 +146,7 @@ describe("updateTask", () => {
     const { student, teacher, project } = await scene();
     const t = await createTask(student.id, project.id, { title: "任务" });
     await expect(updateTask(teacher.id, t.id, { status: "done" })).rejects.toThrow(
-      "没有权限",
+      "只有项目管理员可以编辑任务",
     );
   });
 
@@ -154,7 +162,7 @@ describe("updateTask", () => {
     const other = await createProject(owner.id, team.id, { name: "另一项目" });
     const t = await createTask(student.id, project.id, { title: "任务" });
     const evil = { status: "done", projectId: other.id, sortOrder: -1 } as Parameters<typeof updateTask>[2];
-    const updated = await updateTask(student.id, t.id, evil);
+    const updated = await updateTask(owner.id, t.id, evil);
     expect(updated.status).toBe("done");
     expect(updated.projectId).toBe(project.id);  // 未被挪走
     expect(updated.sortOrder).toBe(t.sortOrder); // 未被篡改
@@ -255,11 +263,11 @@ describe("任务 startDate（时间线地基）", () => {
   });
 
   it("updateTask 可改起始日，可清空为 null", async () => {
-    const { student, project } = await scene();
+    const { owner, student, project } = await scene();
     const t = await createTask(student.id, project.id, { title: "实验" });
-    const u1 = await updateTask(student.id, t.id, { startDate: "2026-07-02" });
+    const u1 = await updateTask(owner.id, t.id, { startDate: "2026-07-02" });
     expect(u1.startDate).toBe("2026-07-02");
-    const u2 = await updateTask(student.id, t.id, { startDate: null });
+    const u2 = await updateTask(owner.id, t.id, { startDate: null });
     expect(u2.startDate).toBeNull();
   });
 });

@@ -156,7 +156,10 @@ export async function updateTask(
   const [task] = await query.select().from(tasks).where(eq(tasks.id, taskId));
   if (!task) throw new AppError("任务不存在");
 
-  const access = await requireTaskWrite(actorId, task.projectId);
+  const access = await requireProjectAccess(actorId, task.projectId);
+  if (access.role !== "admin") {
+    throw new ForbiddenError("只有项目管理员可以编辑任务");
+  }
   const hasAssigneePatch =
     patch.assigneeIds !== undefined || patch.assigneeId !== undefined;
   const nextAssigneeIds = hasAssigneePatch

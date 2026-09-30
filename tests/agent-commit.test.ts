@@ -70,10 +70,10 @@ describe("commitDraft — update_tasks 版本校验", () => {
   beforeEach(resetDb);
 
   it("版本一致 → 落库", async () => {
-    const { student, project } = await scene();
+    const { owner, student, project } = await scene();
     const t = await createTask(student.id, project.id, { title: "甲" });
     const [row] = await listProjectTasks(student.id, project.id);
-    const r = await commitDraft(student.id, project.id, "update_tasks", {
+    const r = await commitDraft(owner.id, project.id, "update_tasks", {
       updates: [{ taskId: t.id, updatedAt: row.updatedAt.toISOString(), patch: { status: "doing" } }],
     });
     expect(r.committed).toBe(1);
@@ -83,10 +83,10 @@ describe("commitDraft — update_tasks 版本校验", () => {
   });
 
   it("版本过期（updatedAt 不符）→ 冲突、不落库", async () => {
-    const { student, project } = await scene();
+    const { owner, student, project } = await scene();
     const t = await createTask(student.id, project.id, { title: "甲" });
-    await updateTask(student.id, t.id, { status: "done" });
-    const r = await commitDraft(student.id, project.id, "update_tasks", {
+    await updateTask(owner.id, t.id, { status: "done" });
+    const r = await commitDraft(owner.id, project.id, "update_tasks", {
       updates: [
         { taskId: t.id, updatedAt: "2000-01-01T00:00:00.000Z", patch: { status: "doing" } },
       ],
@@ -106,7 +106,7 @@ describe("commitDraft — plan_sprint", () => {
     const m = await createMilestone(owner.id, project.id, { title: "冲刺一" });
     const t1 = await createTask(student.id, project.id, { title: "甲" });
     const t2 = await createTask(student.id, project.id, { title: "乙" });
-    const r = await commitDraft(student.id, project.id, "plan_sprint", {
+    const r = await commitDraft(owner.id, project.id, "plan_sprint", {
       milestoneId: m.id,
       taskIds: [t1.id, t2.id],
       dueDate: "2026-11-30",

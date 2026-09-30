@@ -229,7 +229,7 @@ export async function updateTaskAction(
     await setTaskSuccessors(session.user.id, taskId, successorIds);
     await setTaskLabels(session.user.id, taskId, labelIds);
   } catch (e) {
-    if (e instanceof ForbiddenError) return { error: "没有权限修改任务" };
+    if (e instanceof ForbiddenError) return { error: e.message };
     if (e instanceof AppError) return { error: e.message };
     throw e;
   }
