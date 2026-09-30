@@ -12,7 +12,7 @@ const credentialsSchema = z.object({
   password: z.string().min(1),
 });
 
-export const { handlers, auth, signIn, signOut } = NextAuth({
+export const { handlers, auth, signIn, signOut, unstable_update } = NextAuth({
   session: { strategy: "jwt" },
   pages: { signIn: "/login" },
   providers: [
@@ -51,8 +51,16 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     }),
   ],
   callbacks: {
-    jwt({ token, user }) {
-      if (user) token.id = user.id;
+    jwt({ token, user, trigger, session }) {
+      if (user) {
+        token.id = user.id;
+        token.name = user.name;
+        token.email = user.email;
+      }
+      if (trigger === "update" && session?.user) {
+        if (session.user.name) token.name = session.user.name;
+        if (session.user.email) token.email = session.user.email;
+      }
       return token;
     },
     session({ session, token }) {
