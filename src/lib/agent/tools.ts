@@ -31,7 +31,9 @@ export async function listTasksFiltered(
 ) {
   let list = await listProjectTasks(actorId, projectId);
   if (filters.status) list = list.filter((t) => t.status === filters.status);
-  if (filters.assigneeId) list = list.filter((t) => t.assigneeId === filters.assigneeId);
+  if (filters.assigneeId) {
+    list = list.filter((t) => t.assigneeIds.includes(filters.assigneeId!));
+  }
   if (filters.dueBefore)
     list = list.filter((t) => t.dueDate !== null && t.dueDate <= filters.dueBefore!);
   return list.map((t) => ({

@@ -1,6 +1,6 @@
 import { and, eq, isNotNull, ne, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { tasks, users, projects } from "@/db/schema";
+import { projects, taskAssignees, tasks, users } from "@/db/schema";
 import { sendCardMessage } from "./feishu";
 import {
   buildAssignedCard,
@@ -82,12 +82,13 @@ export async function scanAndNotifyDue(): Promise<{ notified: number; tasksScann
       id: tasks.id,
       title: tasks.title,
       dueDate: tasks.dueDate,
-      assigneeId: tasks.assigneeId,
+      assigneeId: taskAssignees.userId,
       projectId: tasks.projectId,
       openId: users.feishuOpenId,
     })
     .from(tasks)
-    .innerJoin(users, eq(tasks.assigneeId, users.id))
+    .innerJoin(taskAssignees, eq(taskAssignees.taskId, tasks.id))
+    .innerJoin(users, eq(taskAssignees.userId, users.id))
     .where(
       and(
         ne(tasks.status, "done"),

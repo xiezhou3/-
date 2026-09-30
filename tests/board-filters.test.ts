@@ -6,7 +6,12 @@ import {
   applyFilters,
   type FilterableTask,
 } from "@/lib/board-filters";
-import { deriveColumns, supportsTaskCreation } from "@/lib/board-columns";
+import {
+  canDragTask,
+  deriveColumns,
+  supportsTaskCreation,
+  supportsTaskDragging,
+} from "@/lib/board-columns";
 
 const A = "11111111-1111-1111-1111-111111111111";
 const B = "22222222-2222-2222-2222-222222222222";
@@ -14,8 +19,10 @@ const M = "33333333-3333-3333-3333-333333333333";
 const L = "44444444-4444-4444-4444-444444444444";
 
 function task(over: Partial<FilterableTask> = {}): FilterableTask {
+  const assigneeId = over.assigneeId ?? null;
   return {
-    assigneeId: null,
+    assigneeId,
+    assigneeIds: over.assigneeIds ?? (assigneeId ? [assigneeId] : []),
     priority: "medium",
     milestoneId: null,
     dueDate: null,
@@ -94,6 +101,14 @@ describe("applyFilters", () => {
     expect(applyFilters(list, { ...EMPTY_FILTERS, assignee: ["none"] }, today)).toHaveLength(1);
   });
 
+  it("多负责人任务命中任一负责人筛选", () => {
+    const list = [
+      task({ assigneeId: A, assigneeIds: [A, B] }),
+      task({ assigneeId: B, assigneeIds: [B] }),
+    ];
+    expect(applyFilters(list, { ...EMPTY_FILTERS, assignee: [A] }, today)).toHaveLength(1);
+  });
+
   it("按标签筛选：任务命中任一所选标签即算", () => {
     const list = [task({ labels: [{ id: L }] }), task()];
     expect(applyFilters(list, { ...EMPTY_FILTERS, label: [L] }, today)).toHaveLength(1);
@@ -138,9 +153,11 @@ describe("deriveColumns", () => {
     const cols = deriveColumns("status", ctx);
     expect(cols.map((c) => c.key)).toEqual(["todo", "doing", "done"]);
     expect(cols[1].patch).toEqual({ status: "doing" });
+    expect(cols[1].label).toBe("待审核");
     expect(cols[1].matches(task({ status: "doing" }))).toBe(true);
     expect(cols[1].matches(task({ status: "todo" }))).toBe(false);
     expect(cols.every(supportsTaskCreation)).toBe(true);
+    expect(cols.every(supportsTaskDragging)).toBe(true);
   });
 
   it("按指派人分组：每成员一列 + 未指派列，patch 改 assigneeId", () => {
@@ -150,6 +167,14 @@ describe("deriveColumns", () => {
     expect(cols[2].patch).toEqual({ assigneeId: null });
     expect(cols[2].matches(task({ assigneeId: null }))).toBe(true);
     expect(cols.some(supportsTaskCreation)).toBe(false);
+    expect(cols.some(supportsTaskDragging)).toBe(false);
+  });
+
+  it("多负责人任务会出现在多个负责人列", () => {
+    const cols = deriveColumns("assignee", ctx);
+    const t = task({ assigneeId: A, assigneeIds: [A, B] });
+    expect(cols[0].matches(t)).toBe(true);
+    expect(cols[1].matches(t)).toBe(true);
   });
 
   it("按优先级分组：高中低三列，patch 改 priority", () => {
@@ -168,5 +193,37 @@ describe("deriveColumns", () => {
   it("成员为空时按指派人分组仍有未指派列", () => {
     const cols = deriveColumns("assignee", { members: [], milestones: [] });
     expect(cols.map((c) => c.key)).toEqual(["none"]);
+  });
+});
+
+describe("canDragTask", () => {
+  const statusCols = deriveColumns("status", { members: [], milestones: [] });
+  const statusColumn = statusCols[0];
+  const assigneeColumn = deriveColumns("assignee", {
+    members: [{ id: A, name: "周瑜" }],
+    milestones: [],
+  })[0];
+
+  it("只在状态分组允许拖动，其他分组一律禁止", () => {
+    const t = task({ assigneeId: A, assigneeIds: [A] });
+    expect(canDragTask(statusColumn, t, A, false)).toBe(true);
+    expect(canDragTask(assigneeColumn, t, A, true)).toBe(false);
+  });
+
+  it("只有负责人和项目管理员可以拖动", () => {
+    const t = task({ assigneeId: A, assigneeIds: [A] });
+    expect(canDragTask(statusColumn, t, A, false)).toBe(true);
+    expect(canDragTask(statusColumn, t, B, false)).toBe(false);
+    expect(canDragTask(statusColumn, t, B, true)).toBe(true);
+  });
+
+  it("待审核任务只有管理员可以拖动", () => {
+    const reviewing = task({
+      assigneeId: A,
+      assigneeIds: [A],
+      status: "doing",
+    });
+    expect(canDragTask(statusColumn, reviewing, A, false)).toBe(false);
+    expect(canDragTask(statusColumn, reviewing, B, true)).toBe(true);
   });
 });

@@ -13,8 +13,10 @@ import {
 } from "@dnd-kit/core";
 import { Plus } from "lucide-react";
 import {
+  canDragTask,
   deriveColumns,
   supportsTaskCreation,
+  supportsTaskDragging,
   type BoardColumn,
   type ColumnPatch,
 } from "@/lib/board-columns";
@@ -38,6 +40,8 @@ export type BoardTask = {
   dueDate: string | null;
   assigneeName: string | null;
   assigneeId: string | null;
+  assigneeIds: string[];
+  assignees: { id: string; name: string }[];
   milestoneId: string | null;
   labels: { id: string; name: string; color: string }[];
 };
@@ -47,6 +51,8 @@ function Column({
   tasks,
   projectId,
   canWrite,
+  currentUserId,
+  isAdmin,
   members,
   milestones,
   allTasks,
@@ -59,6 +65,8 @@ function Column({
   tasks: BoardTask[];
   projectId: string;
   canWrite: boolean;
+  currentUserId: string;
+  isAdmin: boolean;
   members: Option[];
   milestones: Option[];
   allTasks: { id: string; title: string }[];
@@ -122,6 +130,7 @@ function Column({
             task={t}
             projectId={projectId}
             canWrite={canWrite}
+            canDrag={canDragTask(column, t, currentUserId, isAdmin)}
             members={members}
             milestones={milestones}
             allTasks={allTasks}
@@ -139,6 +148,8 @@ export function Board({
   tasks,
   groupBy,
   canWrite,
+  currentUserId,
+  isAdmin,
   members,
   milestones,
   allTasks,
@@ -149,6 +160,8 @@ export function Board({
   tasks: BoardTask[];
   groupBy: GroupBy;
   canWrite: boolean;
+  currentUserId: string;
+  isAdmin: boolean;
   members: Option[];
   milestones: Option[];
   allTasks: { id: string; title: string }[];
@@ -197,11 +210,16 @@ export function Board({
     const task = optimisticTasks.find((t) => t.id === taskId);
     // 已在目标列则无须提交
     if (!column || !task || column.matches(task)) return;
+    if (!supportsTaskDragging(column)) return;
 
     startTransition(async () => {
       setError(null);
       updateOptimistic({ type: "move", taskId, patch: column.patch });
-      const res = await moveTaskAction({ taskId, projectId, patch: column.patch });
+      const res = await moveTaskAction({
+        taskId,
+        projectId,
+        patch: { status: column.patch.status! },
+      });
       if (res?.error) setError(res.error);
     });
   }
@@ -228,6 +246,8 @@ export function Board({
             tasks={optimisticTasks.filter((t) => col.matches(t))}
             projectId={projectId}
             canWrite={canWrite}
+            currentUserId={currentUserId}
+            isAdmin={isAdmin}
             members={members}
             milestones={milestones}
             allTasks={allTasks}

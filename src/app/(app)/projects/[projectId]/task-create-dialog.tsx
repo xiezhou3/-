@@ -10,7 +10,7 @@ type MilestoneOption = { id: string; name: string };
 
 const STATUS_LABEL = {
   todo: "待办",
-  doing: "进行中",
+  doing: "待审核",
   done: "已完成",
 } as const;
 
@@ -43,6 +43,12 @@ export function TaskCreateDialog({
       }
 
       const { task } = result;
+      const assignees = task.assigneeIds
+        .map((id) => {
+          const member = members.find((item) => item.id === id);
+          return member ? { id: member.id, name: member.name } : null;
+        })
+        .filter((item): item is MemberOption => item !== null);
       onCreated({
         id: task.id,
         title: task.title,
@@ -53,8 +59,10 @@ export function TaskCreateDialog({
         startDate: task.startDate,
         dueDate: task.dueDate,
         assigneeName:
-          members.find((member) => member.id === task.assigneeId)?.name ?? null,
+          assignees.map((assignee) => assignee.name).join("、") || null,
         assigneeId: task.assigneeId,
+        assigneeIds: task.assigneeIds,
+        assignees,
         milestoneId: task.milestoneId,
         labels: [],
       });
@@ -114,8 +122,13 @@ export function TaskCreateDialog({
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="space-y-1.5">
                 <span className="text-xs font-medium text-ink-soft">负责人</span>
-                <select name="assigneeId" defaultValue="" className="ac-field">
-                  <option value="">未分配</option>
+                <select
+                  multiple
+                  name="assigneeIds"
+                  defaultValue={[]}
+                  className="ac-field"
+                  size={Math.min(5, Math.max(2, members.length))}
+                >
                   {members.map((member) => (
                     <option key={member.id} value={member.id}>
                       {member.name}

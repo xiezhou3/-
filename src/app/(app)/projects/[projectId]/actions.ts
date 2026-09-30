@@ -3,7 +3,13 @@
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { auth } from "@/lib/auth";
-import { createTask, updateTask, deleteTask, setTaskSuccessors } from "@/lib/task";
+import {
+  createTask,
+  moveTask,
+  updateTask,
+  deleteTask,
+  setTaskSuccessors,
+} from "@/lib/task";
 import { setTaskLabels } from "@/lib/label";
 import { createMilestone } from "@/lib/project";
 import { AppError, ForbiddenError } from "@/lib/errors";
@@ -21,6 +27,7 @@ export type CreatedTask = {
   startDate: string | null;
   dueDate: string | null;
   assigneeId: string | null;
+  assigneeIds: string[];
   milestoneId: string | null;
 };
 export type CreateTaskState =
@@ -32,6 +39,7 @@ const createTaskSchema = z.object({
   title: z.string().trim().min(1, "请填写任务标题"),
   description: z.string().trim().optional(),
   assigneeId: z.uuid().optional(),
+  assigneeIds: z.array(z.uuid()).optional(),
   startDate: z.iso.date("日期格式不正确").optional(),
   dueDate: z.iso.date("日期格式不正确").optional(),
   milestoneId: z.uuid().optional(),
@@ -46,9 +54,11 @@ export async function createTaskAction(
   if (!session?.user) return { ok: false, error: "请先登录" };
 
   const raw = Object.fromEntries(formData);
+  const assigneeIds = formData.getAll("assigneeIds").map(String).filter(Boolean);
   const parsed = createTaskSchema.safeParse({
     ...raw,
     assigneeId: raw.assigneeId || undefined,
+    assigneeIds: assigneeIds.length > 0 ? assigneeIds : undefined,
     startDate: raw.startDate || undefined,
     dueDate: raw.dueDate || undefined,
     milestoneId: raw.milestoneId || undefined,
@@ -75,6 +85,12 @@ export async function createTaskAction(
         startDate: task.startDate,
         dueDate: task.dueDate,
         assigneeId: task.assigneeId,
+        assigneeIds:
+          assigneeIds.length > 0
+            ? assigneeIds
+            : task.assigneeId
+              ? [task.assigneeId]
+              : [],
         milestoneId: task.milestoneId,
       },
     };
@@ -124,10 +140,7 @@ export async function createMilestoneAction(
 // 拖拽可改的字段白名单。校验与授权仍全数落在 updateTask
 //（指派人须属团队、里程碑须属项目），故此处只做形状校验。
 const movePatchSchema = z.object({
-  status: z.enum(["todo", "doing", "done"]).optional(),
-  assigneeId: z.uuid().nullable().optional(),
-  priority: z.enum(["low", "medium", "high"]).optional(),
-  milestoneId: z.uuid().nullable().optional(),
+  status: z.enum(["todo", "doing", "done"]),
 });
 
 const moveTaskSchema = z.object({
@@ -150,7 +163,7 @@ export async function moveTaskAction(input: {
   if (Object.keys(parsed.data.patch).length === 0) return { error: "参数无效" };
 
   try {
-    await updateTask(session.user.id, parsed.data.taskId, parsed.data.patch);
+    await moveTask(session.user.id, parsed.data.taskId, parsed.data.patch.status);
   } catch (e) {
     if (e instanceof AppError) return { error: e.message };
     throw e;
@@ -165,6 +178,7 @@ const updateTaskSchema = z.object({
   title: z.string().trim().min(1, "标题不可为空"),
   description: z.string().trim().optional(),
   assigneeId: z.uuid().optional(),
+  assigneeIds: z.array(z.uuid()).optional(),
   milestoneId: z.uuid().optional(),
   startDate: z.iso.date("日期格式不正确").optional(),
   dueDate: z.iso.date("日期格式不正确").optional(),
@@ -180,9 +194,11 @@ export async function updateTaskAction(
   if (!session?.user) return { error: "请先登录" };
 
   const raw = Object.fromEntries(formData);
+  const assigneeIds = formData.getAll("assigneeIds").map(String).filter(Boolean);
   const parsed = updateTaskSchema.safeParse({
     ...raw,
     assigneeId: raw.assigneeId || undefined,
+    assigneeIds,
     milestoneId: raw.milestoneId || undefined,
     startDate: raw.startDate || undefined,
     dueDate: raw.dueDate || undefined,
@@ -203,6 +219,7 @@ export async function updateTaskAction(
       title: patch.title,
       description: patch.description ?? null,
       assigneeId: patch.assigneeId ?? null,
+      assigneeIds: patch.assigneeIds,
       milestoneId: patch.milestoneId ?? null,
       startDate: patch.startDate ?? null,
       dueDate: patch.dueDate ?? null,

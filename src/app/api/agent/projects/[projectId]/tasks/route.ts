@@ -39,7 +39,7 @@ export async function GET(req: Request, ctx: Ctx) {
   try {
     let rows = await listProjectTasks(userId, projectId);
     if (f.status) rows = rows.filter((t) => t.status === f.status);
-    if (f.assigneeId) rows = rows.filter((t) => t.assigneeId === f.assigneeId);
+    if (f.assigneeId) rows = rows.filter((t) => t.assigneeIds.includes(f.assigneeId!));
     if (f.dueBefore) rows = rows.filter((t) => t.dueDate !== null && t.dueDate <= f.dueBefore!);
 
     return NextResponse.json({
@@ -53,6 +53,8 @@ export async function GET(req: Request, ctx: Ctx) {
         dueDate: t.dueDate,
         milestoneId: t.milestoneId,
         assigneeId: t.assigneeId,
+        assigneeIds: t.assigneeIds,
+        assignees: t.assignees,
         assigneeName: t.assigneeName,
         completionNote: t.completionNote,
         updatedAt: t.updatedAt,
@@ -67,6 +69,7 @@ const createSchema = z.object({
   title: z.string().min(1),
   description: z.string().optional(),
   assigneeId: z.uuid().optional(),
+  assigneeIds: z.array(z.uuid()).optional(),
   startDate: z.string().optional(),
   dueDate: z.string().optional(),
   milestoneId: z.uuid().optional(),

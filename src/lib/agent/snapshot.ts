@@ -33,7 +33,7 @@ export async function buildProjectSnapshot(actorId: string, projectId: string): 
     `# 当前项目：${project.name}（projectId=${project.id}）`,
     project.description ? `描述：${project.description}` : null,
     `状态：${project.status}；起止：${project.startDate ?? "?"} ~ ${project.endDate ?? "?"}`,
-    `任务统计：共 ${tasks.length} 个（待办 ${byStatus.todo} / 进行中 ${byStatus.doing} / 已完成 ${byStatus.done}）`,
+    `任务统计：共 ${tasks.length} 个（待办 ${byStatus.todo} / 待审核 ${byStatus.doing} / 已完成 ${byStatus.done}）`,
     `共 ${milestones.length} 个里程碑`,
   ]
     .filter(Boolean)

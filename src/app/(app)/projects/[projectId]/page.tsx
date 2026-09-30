@@ -132,10 +132,14 @@ export default async function ProjectPage({
             dueDate: t.dueDate,
             assigneeName: t.assigneeName,
             assigneeId: t.assigneeId,
+            assigneeIds: t.assigneeIds,
+            assignees: t.assignees,
             milestoneId: t.milestoneId,
             labels: t.labels,
           }))}
           canWrite={canWrite}
+          currentUserId={session.user.id}
+          isAdmin={isAdmin}
           members={members}
           milestones={projectMilestones.map((m) => ({ id: m.id, name: m.title }))}
           allTasks={projectTasks.map((t) => ({ id: t.id, title: t.title }))}

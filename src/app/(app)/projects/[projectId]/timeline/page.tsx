@@ -225,7 +225,7 @@ function Gantt({
       {/* 图例 */}
       <div className="flex flex-wrap items-center gap-4 border-t border-line px-4 py-2 text-[11px] text-ink-soft">
         <Legend cls="bg-todo" label="待办" />
-        <Legend cls="bg-doing" label="进行中" />
+        <Legend cls="bg-doing" label="待审核" />
         <Legend cls="bg-done" label="已完成" />
         <Legend cls="bg-high" label="逾期" />
         <span className="flex items-center gap-1">

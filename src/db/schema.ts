@@ -169,6 +169,24 @@ export const tasks = pgTable(
   ],
 );
 
+export const taskAssignees = pgTable(
+  "task_assignees",
+  {
+    taskId: uuid("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    position: doublePrecision("position").notNull().default(0),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.taskId, t.userId] }),
+    index("task_assignees_user_idx").on(t.userId),
+  ],
+);
+
 export const projectFileKindEnum = pgEnum("project_file_kind", [
   "presentation",
   "document",

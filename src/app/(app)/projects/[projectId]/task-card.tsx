@@ -30,6 +30,7 @@ export function TaskCard({
   task,
   projectId,
   canWrite,
+  canDrag,
   members,
   milestones,
   allTasks,
@@ -39,6 +40,7 @@ export function TaskCard({
   task: BoardTask;
   projectId: string;
   canWrite: boolean;
+  canDrag: boolean;
   members: Option[];
   milestones: Option[];
   allTasks: TaskOption[];
@@ -57,7 +59,7 @@ export function TaskCard({
   }
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: task.id,
-    disabled: !canWrite || editing,
+    disabled: !canDrag || editing,
   });
   const successorTitles = dependencies
     .filter((d) => d.predecessorId === task.id)
@@ -81,7 +83,7 @@ export function TaskCard({
         dragHandleProps={{
           ...listeners,
           ...attributes,
-          className: canWrite && !editing ? "cursor-grab" : "",
+          className: canDrag && !editing ? "cursor-grab" : "",
         }}
       />
 
@@ -124,7 +126,11 @@ export function TaskCardContent({
     <div {...dragHandleProps}>
       <p className="font-medium text-ink">{task.title}</p>
       <p className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs text-ink-soft">
-        <span>{task.assigneeName ?? "未分配"}</span>
+        <span>
+          {task.assignees.length > 0
+            ? task.assignees.map((assignee) => assignee.name).join("、")
+            : "未分配"}
+        </span>
         {(task.startDate || task.dueDate) && (
           <span>· {task.startDate ?? "…"}→{task.dueDate ?? "…"}</span>
         )}
@@ -259,8 +265,13 @@ function EditModal({
 
           <div className="grid grid-cols-2 gap-2.5">
             <Field label="负责人">
-              <select name="assigneeId" defaultValue={task.assigneeId ?? ""} className="ac-field text-sm">
-                <option value="">未分配</option>
+              <select
+                multiple
+                name="assigneeIds"
+                defaultValue={task.assigneeIds}
+                className="ac-field text-sm"
+                size={Math.min(5, Math.max(2, members.length))}
+              >
                 {members.map((m) => (
                   <option key={m.id} value={m.id}>
                     {m.name}

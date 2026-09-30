@@ -5,7 +5,13 @@ import { tasks } from "@/db/schema";
 import { createUser } from "@/lib/user";
 import { createTeam, joinTeam, updateMemberRole } from "@/lib/team";
 import { createProject, createMilestone } from "@/lib/project";
-import { createTask, updateTask, deleteTask, listProjectTasks } from "@/lib/task";
+import {
+  createTask,
+  moveTask,
+  updateTask,
+  deleteTask,
+  listProjectTasks,
+} from "@/lib/task";
 import { resetDb } from "./helpers";
 
 async function makeUser(email: string) {
@@ -76,6 +82,19 @@ describe("createTask", () => {
     ).rejects.toThrow("负责人不是团队成员");
   });
 
+  it("可一次设置多个负责人，列表按选择顺序回读", async () => {
+    const { owner, student, teacher, project } = await scene();
+    await createTask(owner.id, project.id, {
+      title: "多人协作",
+      assigneeIds: [student.id, teacher.id],
+    });
+
+    const [task] = await listProjectTasks(owner.id, project.id);
+    expect(task.assigneeIds).toEqual([student.id, teacher.id]);
+    expect(task.assignees.map((item) => item.name)).toEqual(["student", "teacher"]);
+    expect(task.assigneeId).toBe(student.id);
+  });
+
   it("里程碑必须属于本项目", async () => {
     const { owner, team, student, project } = await scene();
     const other = await createProject(owner.id, team.id, { name: "另一项目" });
@@ -99,6 +118,20 @@ describe("updateTask", () => {
     expect(updated.status).toBe("doing");
     expect(updated.assigneeId).toBe(owner.id);
     expect(updated.updatedAt.getTime()).toBeGreaterThanOrEqual(t.updatedAt.getTime());
+  });
+
+  it("可替换任务的多个负责人", async () => {
+    const { owner, student, teacher, project } = await scene();
+    const t = await createTask(owner.id, project.id, {
+      title: "多人协作",
+      assigneeIds: [student.id],
+    });
+    await updateTask(owner.id, t.id, {
+      assigneeIds: [teacher.id, student.id],
+    });
+    const [row] = await listProjectTasks(owner.id, project.id);
+    expect(row.assigneeIds).toEqual([teacher.id, student.id]);
+    expect(row.assigneeId).toBe(teacher.id);
   });
 
   it("teacher 改任务被拒", async () => {
@@ -125,6 +158,55 @@ describe("updateTask", () => {
     expect(updated.status).toBe("done");
     expect(updated.projectId).toBe(project.id);  // 未被挪走
     expect(updated.sortOrder).toBe(t.sortOrder); // 未被篡改
+  });
+});
+
+describe("moveTask", () => {
+  beforeEach(resetDb);
+
+  it("任务负责人可以把任务拖到待审核", async () => {
+    const { owner, student, project } = await scene();
+    const task = await createTask(owner.id, project.id, {
+      title: "待提交",
+      assigneeIds: [student.id],
+    });
+    const moved = await moveTask(student.id, task.id, "doing");
+    expect(moved.status).toBe("doing");
+  });
+
+  it("非负责人不能拖动任务", async () => {
+    const { owner, student, project } = await scene();
+    const task = await createTask(owner.id, project.id, {
+      title: "他人任务",
+      assigneeIds: [owner.id],
+    });
+    await expect(moveTask(student.id, task.id, "doing")).rejects.toThrow(
+      "只有任务负责人或项目管理员可以拖动任务",
+    );
+  });
+
+  it("待审核任务只有项目管理员可以继续拖动", async () => {
+    const { owner, student, project } = await scene();
+    const task = await createTask(owner.id, project.id, {
+      title: "待审核",
+      assigneeIds: [student.id],
+      status: "doing",
+    });
+    await expect(moveTask(student.id, task.id, "done")).rejects.toThrow(
+      "待审核任务只能由项目管理员移动",
+    );
+    const moved = await moveTask(owner.id, task.id, "done");
+    expect(moved.status).toBe("done");
+  });
+
+  it("被指派的 teacher 也拥有拖动权限", async () => {
+    const { owner, teacher, project } = await scene();
+    const task = await createTask(owner.id, project.id, {
+      title: "导师待办",
+      assigneeIds: [teacher.id],
+    });
+    const moved = await moveTask(teacher.id, task.id, "doing");
+    expect(moved.status).toBe("doing");
   });
 });
 

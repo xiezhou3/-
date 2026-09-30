@@ -1,7 +1,12 @@
 import { z } from "zod";
 import { db } from "@/db";
 import { createMilestone, createProject, getProjectForUser } from "@/lib/project";
-import { createTask, listProjectTasks, updateTask } from "@/lib/task";
+import {
+  createTask,
+  getTaskAssigneeIds,
+  listProjectTasks,
+  updateTask,
+} from "@/lib/task";
 import { notifyTaskAssigned, notifyTaskCompleted } from "@/lib/notify";
 import { ForbiddenError } from "@/lib/errors";
 import type { WriteToolName } from "./tools";
@@ -77,7 +82,12 @@ export async function commitDraft(
         return out;
       });
       // 事务提交后补发通知（tx 路径 createTask 不 fire，由此处统一发）
-      for (const t of created) if (t.assigneeId) void notifyTaskAssigned(t);
+      for (const t of created) {
+        const assigneeIds = await getTaskAssigneeIds(t.id, t.assigneeId);
+        for (const assigneeId of assigneeIds) {
+          void notifyTaskAssigned({ ...t, assigneeId });
+        }
+      }
       return { committed: d.tasks.length, conflicts: [] };
     }
     case "update_tasks": {

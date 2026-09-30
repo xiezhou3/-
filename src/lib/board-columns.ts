@@ -25,6 +25,22 @@ export function supportsTaskCreation(column: BoardColumn) {
   return column.patch.status !== undefined;
 }
 
+export function supportsTaskDragging(column: BoardColumn) {
+  return column.patch.status !== undefined;
+}
+
+export function canDragTask(
+  column: BoardColumn,
+  task: Pick<FilterableTask, "status" | "assigneeIds">,
+  actorId: string,
+  isAdmin: boolean,
+) {
+  if (!supportsTaskDragging(column)) return false;
+  if (isAdmin) return true;
+  if (task.status === "doing") return false;
+  return task.assigneeIds.includes(actorId);
+}
+
 const NEUTRAL = "text-ink-soft";
 
 export function deriveColumns(group: GroupBy, ctx: ColumnContext): BoardColumn[] {
@@ -36,14 +52,14 @@ export function deriveColumns(group: GroupBy, ctx: ColumnContext): BoardColumn[]
           label: m.name,
           tone: NEUTRAL,
           patch: { assigneeId: m.id } as ColumnPatch,
-          matches: (t: FilterableTask) => t.assigneeId === m.id,
+          matches: (t: FilterableTask) => t.assigneeIds.includes(m.id),
         })),
         {
           key: "none",
           label: "未指派",
           tone: "text-ink-faint",
           patch: { assigneeId: null },
-          matches: (t: FilterableTask) => t.assigneeId === null,
+          matches: (t: FilterableTask) => t.assigneeIds.length === 0,
         },
       ];
 
@@ -85,7 +101,7 @@ export function deriveColumns(group: GroupBy, ctx: ColumnContext): BoardColumn[]
       return (
         [
           { key: "todo", label: "待办", tone: "text-todo" },
-          { key: "doing", label: "进行中", tone: "text-doing" },
+          { key: "doing", label: "待审核", tone: "text-doing" },
           { key: "done", label: "已完成", tone: "text-done" },
         ] as const
       ).map((c) => ({
