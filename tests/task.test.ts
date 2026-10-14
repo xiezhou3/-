@@ -7,7 +7,6 @@ import { createTeam, joinTeam, updateMemberRole } from "@/lib/team";
 import { createProject, createMilestone } from "@/lib/project";
 import {
   createTask,
-  moveTask,
   updateTask,
   deleteTask,
   listProjectTasks,
@@ -166,55 +165,6 @@ describe("updateTask", () => {
     expect(updated.status).toBe("done");
     expect(updated.projectId).toBe(project.id);  // 未被挪走
     expect(updated.sortOrder).toBe(t.sortOrder); // 未被篡改
-  });
-});
-
-describe("moveTask", () => {
-  beforeEach(resetDb);
-
-  it("任务负责人可以把任务拖到待审核", async () => {
-    const { owner, student, project } = await scene();
-    const task = await createTask(owner.id, project.id, {
-      title: "待提交",
-      assigneeIds: [student.id],
-    });
-    const moved = await moveTask(student.id, task.id, "doing");
-    expect(moved.status).toBe("doing");
-  });
-
-  it("非负责人不能拖动任务", async () => {
-    const { owner, student, project } = await scene();
-    const task = await createTask(owner.id, project.id, {
-      title: "他人任务",
-      assigneeIds: [owner.id],
-    });
-    await expect(moveTask(student.id, task.id, "doing")).rejects.toThrow(
-      "只有任务负责人或项目管理员可以拖动任务",
-    );
-  });
-
-  it("待审核任务只有项目管理员可以继续拖动", async () => {
-    const { owner, student, project } = await scene();
-    const task = await createTask(owner.id, project.id, {
-      title: "待审核",
-      assigneeIds: [student.id],
-      status: "doing",
-    });
-    await expect(moveTask(student.id, task.id, "done")).rejects.toThrow(
-      "待审核任务只能由项目管理员移动",
-    );
-    const moved = await moveTask(owner.id, task.id, "done");
-    expect(moved.status).toBe("done");
-  });
-
-  it("被指派的 teacher 也拥有拖动权限", async () => {
-    const { owner, teacher, project } = await scene();
-    const task = await createTask(owner.id, project.id, {
-      title: "导师待办",
-      assigneeIds: [teacher.id],
-    });
-    const moved = await moveTask(teacher.id, task.id, "doing");
-    expect(moved.status).toBe("doing");
   });
 });
 

@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { Mail } from "lucide-react";
 import { auth, signOut } from "@/lib/auth";
 import { countMyPendingInvitations } from "@/lib/invitation";
+import { countPendingTaskReviewsForAdmin } from "@/lib/task-review";
 
 export default async function AppLayout({
   children,
@@ -11,7 +12,11 @@ export default async function AppLayout({
 }) {
   const session = await auth();
   if (!session?.user) redirect("/login");
-  const unreadInvitations = await countMyPendingInvitations(session.user.id);
+  const [unreadInvitations, pendingReviews] = await Promise.all([
+    countMyPendingInvitations(session.user.id),
+    countPendingTaskReviewsForAdmin(session.user.id),
+  ]);
+  const unreadMessages = unreadInvitations + pendingReviews;
 
   return (
     <div className="min-h-screen">
@@ -52,13 +57,13 @@ export default async function AppLayout({
         <div className="flex shrink-0 items-center gap-2 sm:gap-3">
           <Link
             href="/invitations"
-            aria-label={`邀请消息${unreadInvitations > 0 ? `，${unreadInvitations} 条未处理` : ""}`}
+            aria-label={`消息${unreadMessages > 0 ? `，${unreadMessages} 条未处理` : ""}`}
             className="relative grid h-9 w-9 place-items-center rounded-field text-ink-soft transition-colors hover:bg-primary-soft hover:text-primary"
           >
             <Mail className="h-5 w-5" aria-hidden />
-            {unreadInvitations > 0 && (
+            {unreadMessages > 0 && (
               <span className="absolute -right-0.5 -top-0.5 grid min-h-4 min-w-4 place-items-center rounded-full bg-high px-1 text-[10px] font-semibold leading-4 text-white">
-                {unreadInvitations > 99 ? "99+" : unreadInvitations}
+                {unreadMessages > 99 ? "99+" : unreadMessages}
               </span>
             )}
           </Link>

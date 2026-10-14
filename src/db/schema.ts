@@ -187,6 +187,60 @@ export const taskAssignees = pgTable(
   ],
 );
 
+export const taskAttachments = pgTable(
+  "task_attachments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    taskId: uuid("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    createdById: uuid("created_by_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    name: text("name").notNull(),
+    url: text("url").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [index("task_attachments_task_idx").on(t.taskId, t.createdAt)],
+);
+
+export const taskReviewStatusEnum = pgEnum("task_review_status", [
+  "pending",
+  "approved",
+  "rejected",
+]);
+export type TaskReviewStatus = (typeof taskReviewStatusEnum.enumValues)[number];
+
+export const taskReviewRequests = pgTable(
+  "task_review_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    taskId: uuid("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" })
+      .unique(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    submittedById: uuid("submitted_by_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    status: taskReviewStatusEnum("status").notNull().default("pending"),
+    submittedAt: timestamp("submitted_at").notNull().defaultNow(),
+    reviewedById: uuid("reviewed_by_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    reviewedAt: timestamp("reviewed_at"),
+    reviewNote: text("review_note"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    index("task_review_project_idx").on(t.projectId),
+    index("task_review_status_idx").on(t.status, t.submittedAt),
+  ],
+);
+
 export const projectFileKindEnum = pgEnum("project_file_kind", [
   "presentation",
   "document",

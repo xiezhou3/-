@@ -5,6 +5,7 @@ import {
   labels,
   milestones,
   taskAssignees,
+  taskAttachments,
   taskDependencies,
   taskLabels,
   tasks,
@@ -21,6 +22,14 @@ import { notifyTaskAssigned, notifyTaskCompleted } from "./notify";
 const TASK_WRITE_ROLES = ["admin", "student"];
 
 export type TaskAssignee = { id: string; name: string };
+export type TaskAttachment = {
+  id: string;
+  name: string;
+  url: string;
+  createdById: string | null;
+  createdByName: string | null;
+  createdAt: Date;
+};
 
 async function requireProjectAccess(actorId: string, projectId: string) {
   const access = await getProjectForUser(actorId, projectId);
@@ -236,38 +245,44 @@ export async function updateTask(
   return updated;
 }
 
-export async function moveTask(
+export async function addTaskAttachment(
   actorId: string,
   taskId: string,
-  status: TaskStatus,
+  input: { name?: string; url: string },
 ) {
   const [task] = await db.select().from(tasks).where(eq(tasks.id, taskId));
   if (!task) throw new AppError("任务不存在");
+  if (task.status !== "todo") throw new AppError("只有待办任务可以添加文件链接");
 
   const access = await getProjectForUser(actorId, task.projectId);
   if (!access) throw new ForbiddenError();
-
   const assigneeIds = await getTaskAssigneeIds(taskId, task.assigneeId);
-  const isAdmin = access.role === "admin";
-  const isAssignee = assigneeIds.includes(actorId);
-  if (!isAdmin && !isAssignee) {
-    throw new ForbiddenError("只有任务负责人或项目管理员可以拖动任务");
-  }
-  if (task.status === "doing" && !isAdmin) {
-    throw new ForbiddenError("待审核任务只能由项目管理员移动");
+  if (access.role !== "admin" && !assigneeIds.includes(actorId)) {
+    throw new ForbiddenError("只有任务负责人或项目管理员可以添加文件链接");
   }
 
-  const [updated] = await db
-    .update(tasks)
-    .set({ status, updatedAt: sql`now()` })
-    .where(eq(tasks.id, taskId))
+  const url = input.url.trim();
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new AppError("文件链接格式不正确");
+  }
+  if (!["http:", "https:"].includes(parsed.protocol)) {
+    throw new AppError("文件链接仅支持 http 或 https");
+  }
+
+  const name = input.name?.trim() || parsed.hostname;
+  const [attachment] = await db
+    .insert(taskAttachments)
+    .values({
+      taskId,
+      createdById: actorId,
+      name: name.slice(0, 120),
+      url,
+    })
     .returning();
-  if (!updated) throw new AppError("任务不存在");
-
-  if (status === "done" && task.status !== "done") {
-    void notifyTaskCompleted(updated, actorId);
-  }
-  return updated;
+  return attachment;
 }
 
 export async function deleteTask(actorId: string, taskId: string) {
@@ -326,6 +341,36 @@ async function assigneesByTask(
     const list = map.get(row.taskId) ?? [];
     list.push({ id: row.id, name: row.name });
     map.set(row.taskId, list);
+  }
+  return map;
+}
+
+async function attachmentsByTask(
+  taskIds: string[],
+): Promise<Map<string, TaskAttachment[]>> {
+  const map = new Map<string, TaskAttachment[]>();
+  if (taskIds.length === 0) return map;
+
+  const rows = await db
+    .select({
+      id: taskAttachments.id,
+      taskId: taskAttachments.taskId,
+      name: taskAttachments.name,
+      url: taskAttachments.url,
+      createdById: taskAttachments.createdById,
+      createdByName: users.name,
+      createdAt: taskAttachments.createdAt,
+    })
+    .from(taskAttachments)
+    .leftJoin(users, eq(taskAttachments.createdById, users.id))
+    .where(inArray(taskAttachments.taskId, taskIds))
+    .orderBy(taskAttachments.createdAt, taskAttachments.id);
+
+  for (const row of rows) {
+    const { taskId, ...attachment } = row;
+    const list = map.get(taskId) ?? [];
+    list.push(attachment);
+    map.set(taskId, list);
   }
   return map;
 }
@@ -391,13 +436,15 @@ export async function listProjectTasks(actorId: string, projectId: string) {
     .orderBy(tasks.sortOrder);
 
   const taskIds = rows.map((r) => r.id);
-  const [labels, assignees] = await Promise.all([
+  const [labels, assignees, attachments] = await Promise.all([
     labelsByTask(taskIds),
     assigneesByTask(taskIds),
+    attachmentsByTask(taskIds),
   ]);
   return withAssignees(rows, assignees).map((row) => ({
     ...row,
     labels: labels.get(row.id) ?? [],
+    attachments: attachments.get(row.id) ?? [],
   }));
 }
 
@@ -430,7 +477,15 @@ export async function listSubtasks(actorId: string, parentTaskId: string) {
     .leftJoin(users, eq(tasks.assigneeId, users.id))
     .where(eq(tasks.parentTaskId, parentTaskId))
     .orderBy(tasks.sortOrder);
-  return withAssignees(rows, await assigneesByTask(rows.map((row) => row.id)));
+  const taskIds = rows.map((row) => row.id);
+  const [assignees, attachments] = await Promise.all([
+    assigneesByTask(taskIds),
+    attachmentsByTask(taskIds),
+  ]);
+  return withAssignees(rows, assignees).map((row) => ({
+    ...row,
+    attachments: attachments.get(row.id) ?? [],
+  }));
 }
 
 // 在某任务下建子任务：projectId 由父任务推得，调用方无须再传。
@@ -483,12 +538,17 @@ export async function getTaskDetail(actorId: string, taskId: string) {
     .where(eq(tasks.id, taskId));
   if (!row) throw new AppError("任务不存在");
   await requireProjectAccess(actorId, row.projectId);
-  const [labels, assignees] = await Promise.all([
+  const [labels, assignees, attachments] = await Promise.all([
     labelsByTask([row.id]),
     assigneesByTask([row.id]),
+    attachmentsByTask([row.id]),
   ]);
   const decorated = withAssignees([row], assignees)[0];
-  return { ...decorated, labels: labels.get(row.id) ?? [] };
+  return {
+    ...decorated,
+    labels: labels.get(row.id) ?? [],
+    attachments: attachments.get(row.id) ?? [],
+  };
 }
 
 // 设置 predecessor 的后置任务（先删旧再插新）。简单关联：仅防直接成环，不强制阻断执行。

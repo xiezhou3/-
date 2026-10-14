@@ -134,6 +134,7 @@ export default async function ProjectPage({
             assigneeId: t.assigneeId,
             assigneeIds: t.assigneeIds,
             assignees: t.assignees,
+            attachments: t.attachments,
             milestoneId: t.milestoneId,
             labels: t.labels,
           }))}

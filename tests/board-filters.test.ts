@@ -7,10 +7,8 @@ import {
   type FilterableTask,
 } from "@/lib/board-filters";
 import {
-  canDragTask,
   deriveColumns,
   supportsTaskCreation,
-  supportsTaskDragging,
 } from "@/lib/board-columns";
 
 const A = "11111111-1111-1111-1111-111111111111";
@@ -156,18 +154,19 @@ describe("deriveColumns", () => {
     expect(cols[1].label).toBe("待审核");
     expect(cols[1].matches(task({ status: "doing" }))).toBe(true);
     expect(cols[1].matches(task({ status: "todo" }))).toBe(false);
-    expect(cols.every(supportsTaskCreation)).toBe(true);
-    expect(cols.every(supportsTaskDragging)).toBe(true);
+    expect(cols.filter(supportsTaskCreation).map((column) => column.key)).toEqual([
+      "todo",
+    ]);
   });
 
   it("按指派人分组：每成员一列 + 未指派列，patch 改 assigneeId", () => {
     const cols = deriveColumns("assignee", ctx);
     expect(cols.map((c) => c.key)).toEqual([A, B, "none"]);
-    expect(cols[0].patch).toEqual({ assigneeId: A });
-    expect(cols[2].patch).toEqual({ assigneeId: null });
+    expect(cols[0].patch).toEqual({});
+    expect(cols[2].patch).toEqual({});
     expect(cols[2].matches(task({ assigneeId: null }))).toBe(true);
     expect(cols.some(supportsTaskCreation)).toBe(false);
-    expect(cols.some(supportsTaskDragging)).toBe(false);
+    expect(cols.some(supportsTaskCreation)).toBe(false);
   });
 
   it("多负责人任务会出现在多个负责人列", () => {
@@ -180,50 +179,18 @@ describe("deriveColumns", () => {
   it("按优先级分组：高中低三列，patch 改 priority", () => {
     const cols = deriveColumns("priority", ctx);
     expect(cols.map((c) => c.key)).toEqual(["high", "medium", "low"]);
-    expect(cols[0].patch).toEqual({ priority: "high" });
+    expect(cols[0].patch).toEqual({});
   });
 
   it("按里程碑分组：每里程碑一列 + 无里程碑列", () => {
     const cols = deriveColumns("milestone", ctx);
     expect(cols.map((c) => c.key)).toEqual([M, "none"]);
-    expect(cols[1].patch).toEqual({ milestoneId: null });
+    expect(cols[1].patch).toEqual({});
     expect(cols[0].matches(task({ milestoneId: M }))).toBe(true);
   });
 
   it("成员为空时按指派人分组仍有未指派列", () => {
     const cols = deriveColumns("assignee", { members: [], milestones: [] });
     expect(cols.map((c) => c.key)).toEqual(["none"]);
-  });
-});
-
-describe("canDragTask", () => {
-  const statusCols = deriveColumns("status", { members: [], milestones: [] });
-  const statusColumn = statusCols[0];
-  const assigneeColumn = deriveColumns("assignee", {
-    members: [{ id: A, name: "周瑜" }],
-    milestones: [],
-  })[0];
-
-  it("只在状态分组允许拖动，其他分组一律禁止", () => {
-    const t = task({ assigneeId: A, assigneeIds: [A] });
-    expect(canDragTask(statusColumn, t, A, false)).toBe(true);
-    expect(canDragTask(assigneeColumn, t, A, true)).toBe(false);
-  });
-
-  it("只有负责人和项目管理员可以拖动", () => {
-    const t = task({ assigneeId: A, assigneeIds: [A] });
-    expect(canDragTask(statusColumn, t, A, false)).toBe(true);
-    expect(canDragTask(statusColumn, t, B, false)).toBe(false);
-    expect(canDragTask(statusColumn, t, B, true)).toBe(true);
-  });
-
-  it("待审核任务只有管理员可以拖动", () => {
-    const reviewing = task({
-      assigneeId: A,
-      assigneeIds: [A],
-      status: "doing",
-    });
-    expect(canDragTask(statusColumn, reviewing, A, false)).toBe(false);
-    expect(canDragTask(statusColumn, reviewing, B, true)).toBe(true);
   });
 });

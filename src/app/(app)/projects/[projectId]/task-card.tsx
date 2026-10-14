@@ -4,12 +4,14 @@ import {
   useActionState,
   useEffect,
   useState,
-  type HTMLAttributes,
+  useTransition,
 } from "react";
-import { useSearchParams } from "next/navigation";
-import { useDraggable } from "@dnd-kit/core";
+import { useRouter, useSearchParams } from "next/navigation";
+import { ExternalLink, Link2, Send } from "lucide-react";
 import {
+  addTaskAttachmentAction,
   deleteTaskAction,
+  submitTaskForReviewAction,
   updateTaskAction,
   type FormState,
   type UpdateTaskState,
@@ -30,7 +32,7 @@ export function TaskCard({
   task,
   projectId,
   canEdit,
-  canDrag,
+  canSubmit,
   members,
   milestones,
   allTasks,
@@ -40,7 +42,7 @@ export function TaskCard({
   task: BoardTask;
   projectId: string;
   canEdit: boolean;
-  canDrag: boolean;
+  canSubmit: boolean;
   members: Option[];
   milestones: Option[];
   allTasks: TaskOption[];
@@ -48,6 +50,11 @@ export function TaskCard({
   dependencies: { predecessorId: string; successorId: string }[];
 }) {
   const [editing, setEditing] = useState(false);
+  const [addingLink, setAddingLink] = useState(false);
+  const [attachments, setAttachments] = useState(task.attachments);
+  const [actionError, setActionError] = useState("");
+  const [submitting, startSubmit] = useTransition();
+  const router = useRouter();
   const searchParams = useSearchParams();
   // 深链 /projects/[id]?task=<taskId>：命中本卡片则打开详情弹窗（仅管理员有 EditModal）。
   // 于渲染期调整而非 useEffect：避免多渲染一轮，且用户手动关闭后不会被 effect 重开。
@@ -57,10 +64,6 @@ export function TaskCard({
     setPrevDeepLinked(deepLinked);
     if (deepLinked) setEditing(true);
   }
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
-    id: task.id,
-    disabled: !canDrag || editing,
-  });
   const successorTitles = dependencies
     .filter((d) => d.predecessorId === task.id)
     .map((d) => allTasks.find((t) => t.id === d.successorId)?.title)
@@ -68,33 +71,72 @@ export function TaskCard({
 
   return (
     <div
-      ref={setNodeRef}
       data-task-id={task.id}
-      style={
-        transform
-          ? { transform: `translate(${transform.x}px, ${transform.y}px)` }
-          : undefined
-      }
-      className={`ac-card min-h-28 p-3 text-sm transition hover:shadow-md ${isDragging ? "opacity-50" : ""}`}
+      className="ac-card min-h-28 p-3 text-sm transition hover:shadow-md"
     >
       <TaskCardContent
-        task={task}
+        task={{ ...task, attachments }}
         successorTitles={successorTitles}
-        dragHandleProps={{
-          ...listeners,
-          ...attributes,
-          className: canDrag && !editing ? "cursor-grab" : "",
-        }}
       />
 
-      {canEdit && (
-        <button
-          type="button"
-          onClick={() => setEditing(true)}
-          className="mt-2 text-xs text-ink-faint hover:text-primary hover:underline"
-        >
-          编辑
-        </button>
+      <div className="mt-2 flex flex-wrap items-center gap-3 text-xs">
+        {canEdit && (
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            className="text-ink-faint hover:text-primary hover:underline"
+          >
+            编辑
+          </button>
+        )}
+        {canSubmit && task.status === "todo" && (
+          <button
+            type="button"
+            onClick={() => setAddingLink(true)}
+            className="inline-flex items-center gap-1 text-primary hover:underline"
+          >
+            <Link2 className="h-3.5 w-3.5" aria-hidden />
+            添加文件链接
+          </button>
+        )}
+        {canSubmit && task.status === "todo" && attachments.length > 0 && (
+          <button
+            type="button"
+            disabled={submitting}
+            onClick={() => {
+              setActionError("");
+              startSubmit(async () => {
+                const result = await submitTaskForReviewAction({
+                  taskId: task.id,
+                  projectId,
+                });
+                if (!result.ok) {
+                  setActionError(result.error);
+                  return;
+                }
+                router.refresh();
+              });
+            }}
+            className="inline-flex items-center gap-1 font-medium text-primary hover:underline disabled:opacity-50"
+          >
+            <Send className="h-3.5 w-3.5" aria-hidden />
+            {submitting ? "提交中…" : "提交审核"}
+          </button>
+        )}
+      </div>
+      {actionError && <p className="mt-2 text-xs text-high">{actionError}</p>}
+
+      {addingLink && (
+        <AttachmentDialog
+          taskId={task.id}
+          projectId={projectId}
+          onClose={() => setAddingLink(false)}
+          onCreated={(attachment) => {
+            setAttachments((current) => [...current, attachment]);
+            setAddingLink(false);
+            router.refresh();
+          }}
+        />
       )}
 
       {editing && (
@@ -116,14 +158,12 @@ export function TaskCard({
 export function TaskCardContent({
   task,
   successorTitles,
-  dragHandleProps,
 }: {
   task: BoardTask;
   successorTitles: string[];
-  dragHandleProps?: HTMLAttributes<HTMLDivElement>;
 }) {
   return (
-    <div {...dragHandleProps}>
+    <div>
       <p className="font-medium text-ink">{task.title}</p>
       <p className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs text-ink-soft">
         <span>
@@ -138,6 +178,25 @@ export function TaskCardContent({
           {task.priority}
         </span>
       </p>
+      {task.attachments.length > 0 && (
+        <p className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
+          {task.attachments.slice(0, 3).map((attachment) => (
+            <a
+              key={attachment.id}
+              href={attachment.url}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex max-w-full items-center gap-1 text-primary hover:underline"
+            >
+              <ExternalLink className="h-3.5 w-3.5 shrink-0" aria-hidden />
+              <span className="truncate">{attachment.name}</span>
+            </a>
+          ))}
+          {task.attachments.length > 3 && (
+            <span className="text-ink-faint">+{task.attachments.length - 3}</span>
+          )}
+        </p>
+      )}
       {task.labels.length > 0 && (
         <p className="mt-1 flex flex-wrap items-center gap-1">
           {task.labels.slice(0, 3).map((l) => (
@@ -164,6 +223,96 @@ export function TaskCardContent({
       {successorTitles.length > 0 && (
         <p className="mt-1 text-xs text-ink-faint">后置：{successorTitles.join("、")}</p>
       )}
+    </div>
+  );
+}
+
+function AttachmentDialog({
+  taskId,
+  projectId,
+  onClose,
+  onCreated,
+}: {
+  taskId: string;
+  projectId: string;
+  onClose: () => void;
+  onCreated: (attachment: BoardTask["attachments"][number]) => void;
+}) {
+  const [name, setName] = useState("");
+  const [url, setUrl] = useState("");
+  const [error, setError] = useState("");
+  const [pending, startTransition] = useTransition();
+
+  function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    startTransition(async () => {
+      const result = await addTaskAttachmentAction({
+        taskId,
+        projectId,
+        name: name.trim() || undefined,
+        url,
+      });
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+      onCreated(result.attachment);
+    });
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label="添加任务文件链接"
+    >
+      <button
+        type="button"
+        aria-label="关闭"
+        onClick={onClose}
+        disabled={pending}
+        className="absolute inset-0 bg-ink/45 backdrop-blur-sm"
+      />
+      <form onSubmit={submit} className="relative z-10 w-full max-w-md ac-card space-y-4 p-5 shadow-pop">
+        <div>
+          <h3 className="font-display text-base font-semibold text-ink">添加文件链接</h3>
+          <p className="mt-1 text-sm text-ink-soft">把交付文件链接附在任务上，再提交审核。</p>
+        </div>
+        <label className="block space-y-1.5">
+          <span className="text-xs font-medium text-ink-soft">链接名称（可选）</span>
+          <input
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            maxLength={120}
+            className="ac-field"
+            placeholder="例如：设计稿、实验报告"
+            disabled={pending}
+          />
+        </label>
+        <label className="block space-y-1.5">
+          <span className="text-xs font-medium text-ink-soft">文件链接</span>
+          <input
+            value={url}
+            onChange={(event) => setUrl(event.target.value)}
+            type="url"
+            required
+            className="ac-field"
+            placeholder="https://..."
+            disabled={pending}
+          />
+        </label>
+        {error && <p className="text-sm text-high">{error}</p>}
+        <div className="flex justify-end gap-2">
+          <button type="button" onClick={onClose} disabled={pending} className="ac-btn-ghost">
+            取消
+          </button>
+          <button disabled={pending || !url.trim()} className="ac-btn">
+            {pending ? "添加中…" : "添加链接"}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }

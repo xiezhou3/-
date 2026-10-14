@@ -63,6 +63,7 @@ export function TaskCreateDialog({
         assigneeId: task.assigneeId,
         assigneeIds: task.assigneeIds,
         assignees,
+        attachments: [],
         milestoneId: task.milestoneId,
         labels: [],
       });

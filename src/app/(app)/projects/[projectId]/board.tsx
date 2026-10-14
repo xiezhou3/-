@@ -1,30 +1,15 @@
 "use client";
 
-import { useEffect, useOptimistic, useRef, useState, useTransition } from "react";
-import {
-  DragOverlay,
-  DndContext,
-  PointerSensor,
-  useDroppable,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-  type DragStartEvent,
-} from "@dnd-kit/core";
+import { useEffect, useOptimistic, useRef, useState } from "react";
 import { Plus } from "lucide-react";
 import {
-  canDragTask,
   deriveColumns,
   supportsTaskCreation,
-  supportsTaskDragging,
   type BoardColumn,
-  type ColumnPatch,
 } from "@/lib/board-columns";
 import type { GroupBy } from "@/lib/board-filters";
-import { moveTaskAction } from "./actions";
 import {
   TaskCard,
-  TaskCardContent,
   type Option,
 } from "./task-card";
 import { TaskCreateDialog } from "./task-create-dialog";
@@ -42,6 +27,14 @@ export type BoardTask = {
   assigneeId: string | null;
   assigneeIds: string[];
   assignees: { id: string; name: string }[];
+  attachments: {
+    id: string;
+    name: string;
+    url: string;
+    createdById: string | null;
+    createdByName: string | null;
+    createdAt: Date | string;
+  }[];
   milestoneId: string | null;
   labels: { id: string; name: string; color: string }[];
 };
@@ -50,7 +43,6 @@ function Column({
   column,
   tasks,
   projectId,
-  canWrite,
   canEdit,
   currentUserId,
   isAdmin,
@@ -65,7 +57,6 @@ function Column({
   column: BoardColumn;
   tasks: BoardTask[];
   projectId: string;
-  canWrite: boolean;
   canEdit: boolean;
   currentUserId: string;
   isAdmin: boolean;
@@ -77,7 +68,6 @@ function Column({
   onAdd?: () => void;
   focusTaskId?: string | null;
 }) {
-  const { setNodeRef, isOver } = useDroppable({ id: column.key });
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -100,10 +90,7 @@ function Column({
 
   return (
     <div
-      ref={setNodeRef}
-      className={`flex h-[26rem] w-72 shrink-0 flex-col rounded-xl border border-line p-3 transition-colors ${
-        isOver ? "bg-primary-soft" : "bg-sunken"
-      }`}
+      className="flex h-[26rem] w-72 shrink-0 flex-col rounded-xl border border-line bg-sunken p-3"
     >
       <div className="flex shrink-0 items-center justify-between gap-2">
         <h3 className={`flex items-center gap-2 text-sm font-semibold ${column.tone}`}>
@@ -132,7 +119,7 @@ function Column({
             task={t}
             projectId={projectId}
             canEdit={canEdit}
-            canDrag={canDragTask(column, t, currentUserId, isAdmin)}
+            canSubmit={isAdmin || t.assigneeIds.includes(currentUserId)}
             members={members}
             milestones={milestones}
             allTasks={allTasks}
@@ -172,75 +159,19 @@ export function Board({
   allLabels: Option[];
   dependencies: { predecessorId: string; successorId: string }[];
 }) {
-  const [, startTransition] = useTransition();
-  const [error, setError] = useState<string | null>(null);
   const [createStatus, setCreateStatus] = useState<
     "todo" | "doing" | "done" | null
   >(null);
-  const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
   const [focusTaskId, setFocusTaskId] = useState<string | null>(null);
-  const [optimisticTasks, updateOptimistic] = useOptimistic<
-    BoardTask[],
-    | { type: "move"; taskId: string; patch: ColumnPatch }
-    | { type: "add"; task: BoardTask }
-  >(
+  const [optimisticTasks, addOptimisticTask] = useOptimistic<BoardTask[], BoardTask>(
     tasks,
-    (current, action) =>
-      action.type === "add"
-        ? [...current, action.task]
-        : current.map((task) =>
-            task.id === action.taskId ? { ...task, ...action.patch } : task,
-          ),
-  );
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    (current, task) => [...current, task],
   );
 
   const columns = deriveColumns(groupBy, { members, milestones });
-  const activeTask = activeTaskId
-    ? optimisticTasks.find((task) => task.id === activeTaskId) ?? null
-    : null;
-
-  function handleDragStart(event: DragStartEvent) {
-    setActiveTaskId(String(event.active.id));
-  }
-
-  function handleDragEnd(event: DragEndEvent) {
-    setActiveTaskId(null);
-    const taskId = String(event.active.id);
-    const over = event.over?.id;
-    if (!over) return;
-    const column = columns.find((c) => c.key === String(over));
-    const task = optimisticTasks.find((t) => t.id === taskId);
-    // 已在目标列则无须提交
-    if (!column || !task || column.matches(task)) return;
-    if (!supportsTaskDragging(column)) return;
-
-    startTransition(async () => {
-      setError(null);
-      updateOptimistic({ type: "move", taskId, patch: column.patch });
-      const res = await moveTaskAction({
-        taskId,
-        projectId,
-        patch: { status: column.patch.status! },
-      });
-      if (res?.error) setError(res.error);
-    });
-  }
-
-  function handleDragCancel() {
-    setActiveTaskId(null);
-  }
 
   return (
-    <DndContext
-      id={`board-${projectId}`}
-      sensors={sensors}
-      onDragStart={handleDragStart}
-      onDragEnd={handleDragEnd}
-      onDragCancel={handleDragCancel}
-    >
-      {error && <p className="text-sm text-high">{error}</p>}
+    <>
       {/* 列数随分组维度而变，故横向滚动而非固定三栏 */}
       <div className="flex gap-4 overflow-x-auto pb-2">
         {columns.map((col) => (
@@ -249,7 +180,6 @@ export function Board({
             column={col}
             tasks={optimisticTasks.filter((t) => col.matches(t))}
             projectId={projectId}
-            canWrite={canWrite}
             canEdit={canEdit}
             currentUserId={currentUserId}
             isAdmin={isAdmin}
@@ -275,46 +205,12 @@ export function Board({
           milestones={milestones}
           onClose={() => setCreateStatus(null)}
           onCreated={(task) => {
-            updateOptimistic({ type: "add", task });
+            addOptimisticTask(task);
             setFocusTaskId(task.id);
             setCreateStatus(null);
           }}
         />
       )}
-      <DragOverlay dropAnimation={null}>
-        {activeTask ? (
-          <TaskCardOverlay
-            task={activeTask}
-            dependencies={dependencies}
-            allTasks={allTasks}
-          />
-        ) : null}
-      </DragOverlay>
-    </DndContext>
-  );
-}
-
-function TaskCardOverlay({
-  task,
-  dependencies,
-  allTasks,
-}: {
-  task: BoardTask;
-  dependencies: { predecessorId: string; successorId: string }[];
-  allTasks: { id: string; title: string }[];
-}) {
-  const successorTitles = dependencies
-    .filter((dependency) => dependency.predecessorId === task.id)
-    .map(
-      (dependency) =>
-        allTasks.find((candidate) => candidate.id === dependency.successorId)
-          ?.title,
-    )
-    .filter((title): title is string => Boolean(title));
-
-  return (
-    <div className="ac-card w-64 rotate-1 p-3 text-sm shadow-pop ring-1 ring-primary-ring">
-      <TaskCardContent task={task} successorTitles={successorTitles} />
-    </div>
+    </>
   );
 }

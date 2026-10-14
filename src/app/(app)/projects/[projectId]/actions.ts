@@ -4,12 +4,13 @@ import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { auth } from "@/lib/auth";
 import {
+  addTaskAttachment,
   createTask,
-  moveTask,
   updateTask,
   deleteTask,
   setTaskSuccessors,
 } from "@/lib/task";
+import { submitTaskForReview } from "@/lib/task-review";
 import { setTaskLabels } from "@/lib/label";
 import { createMilestone } from "@/lib/project";
 import { AppError, ForbiddenError } from "@/lib/errors";
@@ -32,6 +33,21 @@ export type CreatedTask = {
 };
 export type CreateTaskState =
   | { ok: true; task: CreatedTask }
+  | { ok: false; error: string };
+
+export type TaskAttachmentState =
+  | {
+      ok: true;
+      attachment: {
+        id: string;
+        taskId: string;
+        name: string;
+        url: string;
+        createdById: string | null;
+        createdByName: string | null;
+        createdAt: string;
+      };
+    }
   | { ok: false; error: string };
 
 const createTaskSchema = z.object({
@@ -103,6 +119,73 @@ export async function createTaskAction(
   }
 }
 
+const addTaskAttachmentSchema = z.object({
+  taskId: z.uuid(),
+  projectId: z.uuid(),
+  name: z.string().trim().max(120).optional(),
+  url: z.string().trim().min(1, "请填写文件链接"),
+});
+
+export async function addTaskAttachmentAction(input: {
+  taskId: string;
+  projectId: string;
+  name?: string;
+  url: string;
+}): Promise<TaskAttachmentState> {
+  const session = await auth();
+  if (!session?.user) return { ok: false, error: "请先登录" };
+
+  const parsed = addTaskAttachmentSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0].message };
+  }
+
+  try {
+    const attachment = await addTaskAttachment(session.user.id, parsed.data.taskId, {
+      name: parsed.data.name,
+      url: parsed.data.url,
+    });
+    revalidatePath(`/projects/${parsed.data.projectId}`);
+    return {
+      ok: true,
+      attachment: {
+        ...attachment,
+        createdAt: attachment.createdAt.toISOString(),
+        createdByName: session.user.name ?? null,
+      },
+    };
+  } catch (error) {
+    if (error instanceof AppError) return { ok: false, error: error.message };
+    throw error;
+  }
+}
+
+const submitTaskReviewSchema = z.object({
+  taskId: z.uuid(),
+  projectId: z.uuid(),
+});
+
+export async function submitTaskForReviewAction(input: {
+  taskId: string;
+  projectId: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const session = await auth();
+  if (!session?.user) return { ok: false, error: "请先登录" };
+  const parsed = submitTaskReviewSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: "提交参数无效" };
+
+  try {
+    await submitTaskForReview(session.user.id, parsed.data.taskId);
+    revalidatePath(`/projects/${parsed.data.projectId}`);
+    revalidatePath("/invitations");
+    revalidatePath("/", "layout");
+    return { ok: true };
+  } catch (error) {
+    if (error instanceof AppError) return { ok: false, error: error.message };
+    throw error;
+  }
+}
+
 const createMilestoneSchema = z.object({
   projectId: z.uuid(),
   title: z.string().trim().min(1, "请填写里程碑标题"),
@@ -130,41 +213,6 @@ export async function createMilestoneAction(
     });
   } catch (e) {
     if (e instanceof ForbiddenError) return { error: "仅团队管理员可创建里程碑" };
-    if (e instanceof AppError) return { error: e.message };
-    throw e;
-  }
-  revalidatePath(`/projects/${parsed.data.projectId}`);
-  return null;
-}
-
-// 拖拽可改的字段白名单。校验与授权仍全数落在 updateTask
-//（指派人须属团队、里程碑须属项目），故此处只做形状校验。
-const movePatchSchema = z.object({
-  status: z.enum(["todo", "doing", "done"]),
-});
-
-const moveTaskSchema = z.object({
-  taskId: z.uuid(),
-  projectId: z.uuid(),
-  patch: movePatchSchema,
-});
-
-export async function moveTaskAction(input: {
-  taskId: string;
-  projectId: string;
-  patch: z.infer<typeof movePatchSchema>;
-}): Promise<FormState> {
-  const session = await auth();
-  if (!session?.user) return { error: "请先登录" };
-
-  const parsed = moveTaskSchema.safeParse(input);
-  if (!parsed.success) return { error: "参数无效" };
-  // 空补丁无事可做，视为非法请求
-  if (Object.keys(parsed.data.patch).length === 0) return { error: "参数无效" };
-
-  try {
-    await moveTask(session.user.id, parsed.data.taskId, parsed.data.patch.status);
-  } catch (e) {
     if (e instanceof AppError) return { error: e.message };
     throw e;
   }

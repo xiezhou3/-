@@ -1,11 +1,7 @@
 import type { FilterableTask, GroupBy } from "./board-filters";
 
-// 拖拽落列时提交的字段补丁。四字段与 moveTaskAction 的白名单严格对应。
 export type ColumnPatch = {
   status?: "todo" | "doing" | "done";
-  assigneeId?: string | null;
-  priority?: "low" | "medium" | "high";
-  milestoneId?: string | null;
 };
 
 export type BoardColumn = {
@@ -22,23 +18,7 @@ export type ColumnContext = {
 };
 
 export function supportsTaskCreation(column: BoardColumn) {
-  return column.patch.status !== undefined;
-}
-
-export function supportsTaskDragging(column: BoardColumn) {
-  return column.patch.status !== undefined;
-}
-
-export function canDragTask(
-  column: BoardColumn,
-  task: Pick<FilterableTask, "status" | "assigneeIds">,
-  actorId: string,
-  isAdmin: boolean,
-) {
-  if (!supportsTaskDragging(column)) return false;
-  if (isAdmin) return true;
-  if (task.status === "doing") return false;
-  return task.assigneeIds.includes(actorId);
+  return column.patch.status === "todo";
 }
 
 const NEUTRAL = "text-ink-soft";
@@ -51,14 +31,14 @@ export function deriveColumns(group: GroupBy, ctx: ColumnContext): BoardColumn[]
           key: m.id,
           label: m.name,
           tone: NEUTRAL,
-          patch: { assigneeId: m.id } as ColumnPatch,
+          patch: {},
           matches: (t: FilterableTask) => t.assigneeIds.includes(m.id),
         })),
         {
           key: "none",
           label: "未指派",
           tone: "text-ink-faint",
-          patch: { assigneeId: null },
+          patch: {},
           matches: (t: FilterableTask) => t.assigneeIds.length === 0,
         },
       ];
@@ -74,7 +54,7 @@ export function deriveColumns(group: GroupBy, ctx: ColumnContext): BoardColumn[]
         key: c.key,
         label: c.label,
         tone: c.tone,
-        patch: { priority: c.key } as ColumnPatch,
+        patch: {},
         matches: (t: FilterableTask) => t.priority === c.key,
       }));
 
@@ -84,14 +64,14 @@ export function deriveColumns(group: GroupBy, ctx: ColumnContext): BoardColumn[]
           key: m.id,
           label: m.name,
           tone: NEUTRAL,
-          patch: { milestoneId: m.id } as ColumnPatch,
+          patch: {},
           matches: (t: FilterableTask) => t.milestoneId === m.id,
         })),
         {
           key: "none",
           label: "无里程碑",
           tone: "text-ink-faint",
-          patch: { milestoneId: null },
+          patch: {},
           matches: (t: FilterableTask) => t.milestoneId === null,
         },
       ];
