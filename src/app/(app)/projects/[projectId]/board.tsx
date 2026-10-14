@@ -29,6 +29,7 @@ export type BoardTask = {
   assignees: { id: string; name: string }[];
   attachments: {
     id: string;
+    projectFileId: string | null;
     name: string;
     url: string;
     createdById: string | null;

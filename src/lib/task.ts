@@ -4,6 +4,7 @@ import type { DbTx } from "@/db";
 import {
   labels,
   milestones,
+  projectFiles,
   taskAssignees,
   taskAttachments,
   taskDependencies,
@@ -24,6 +25,7 @@ const TASK_WRITE_ROLES = ["admin", "student"];
 export type TaskAssignee = { id: string; name: string };
 export type TaskAttachment = {
   id: string;
+  projectFileId: string | null;
   name: string;
   url: string;
   createdById: string | null;
@@ -248,7 +250,7 @@ export async function updateTask(
 export async function addTaskAttachment(
   actorId: string,
   taskId: string,
-  input: { name?: string; url: string },
+  input: { projectFileId: string },
 ) {
   const [task] = await db.select().from(tasks).where(eq(tasks.id, taskId));
   if (!task) throw new AppError("任务不存在");
@@ -261,25 +263,38 @@ export async function addTaskAttachment(
     throw new ForbiddenError("只有任务负责人或项目管理员可以添加文件链接");
   }
 
-  const url = input.url.trim();
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    throw new AppError("文件链接格式不正确");
-  }
-  if (!["http:", "https:"].includes(parsed.protocol)) {
-    throw new AppError("文件链接仅支持 http 或 https");
+  const [file] = await db
+    .select({
+      id: projectFiles.id,
+      name: projectFiles.name,
+      projectId: projectFiles.projectId,
+      status: projectFiles.status,
+    })
+    .from(projectFiles)
+    .where(eq(projectFiles.id, input.projectFileId));
+  if (!file || file.projectId !== task.projectId || file.status !== "ready") {
+    throw new AppError("项目文件不存在或尚未上传完成");
   }
 
-  const name = input.name?.trim() || parsed.hostname;
+  const [existing] = await db
+    .select()
+    .from(taskAttachments)
+    .where(
+      and(
+        eq(taskAttachments.taskId, taskId),
+        eq(taskAttachments.projectFileId, file.id),
+      ),
+    );
+  if (existing) return existing;
+
   const [attachment] = await db
     .insert(taskAttachments)
     .values({
       taskId,
+      projectFileId: file.id,
       createdById: actorId,
-      name: name.slice(0, 120),
-      url,
+      name: file.name,
+      url: `/projects/${task.projectId}/files/${file.id}/view`,
     })
     .returning();
   return attachment;
@@ -355,6 +370,7 @@ async function attachmentsByTask(
     .select({
       id: taskAttachments.id,
       taskId: taskAttachments.taskId,
+      projectFileId: taskAttachments.projectFileId,
       name: taskAttachments.name,
       url: taskAttachments.url,
       createdById: taskAttachments.createdById,

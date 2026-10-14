@@ -41,6 +41,7 @@ export type TaskAttachmentState =
       attachment: {
         id: string;
         taskId: string;
+        projectFileId: string | null;
         name: string;
         url: string;
         createdById: string | null;
@@ -122,15 +123,13 @@ export async function createTaskAction(
 const addTaskAttachmentSchema = z.object({
   taskId: z.uuid(),
   projectId: z.uuid(),
-  name: z.string().trim().max(120).optional(),
-  url: z.string().trim().min(1, "请填写文件链接"),
+  projectFileId: z.uuid(),
 });
 
 export async function addTaskAttachmentAction(input: {
   taskId: string;
   projectId: string;
-  name?: string;
-  url: string;
+  projectFileId: string;
 }): Promise<TaskAttachmentState> {
   const session = await auth();
   if (!session?.user) return { ok: false, error: "请先登录" };
@@ -142,8 +141,7 @@ export async function addTaskAttachmentAction(input: {
 
   try {
     const attachment = await addTaskAttachment(session.user.id, parsed.data.taskId, {
-      name: parsed.data.name,
-      url: parsed.data.url,
+      projectFileId: parsed.data.projectFileId,
     });
     revalidatePath(`/projects/${parsed.data.projectId}`);
     return {

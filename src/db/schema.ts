@@ -194,6 +194,9 @@ export const taskAttachments = pgTable(
     taskId: uuid("task_id")
       .notNull()
       .references(() => tasks.id, { onDelete: "cascade" }),
+    projectFileId: uuid("project_file_id").references(() => projectFiles.id, {
+      onDelete: "cascade",
+    }),
     createdById: uuid("created_by_id").references(() => users.id, {
       onDelete: "set null",
     }),
@@ -201,7 +204,10 @@ export const taskAttachments = pgTable(
     url: text("url").notNull(),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
-  (t) => [index("task_attachments_task_idx").on(t.taskId, t.createdAt)],
+  (t) => [
+    index("task_attachments_task_idx").on(t.taskId, t.createdAt),
+    uniqueIndex("task_attachments_task_file_unique").on(t.taskId, t.projectFileId),
+  ],
 );
 
 export const taskReviewStatusEnum = pgEnum("task_review_status", [

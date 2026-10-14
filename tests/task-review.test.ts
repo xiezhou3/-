@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { createProject } from "@/lib/project";
+import { createProjectFileLink } from "@/lib/project-file-service";
 import { addTaskAttachment, createTask } from "@/lib/task";
 import {
   approveTaskReview,
@@ -26,6 +27,20 @@ async function scene() {
   return { owner, student, outsider, project };
 }
 
+async function attachLink(
+  actorId: string,
+  projectId: string,
+  taskId: string,
+  name: string,
+) {
+  const file = await createProjectFileLink(actorId, projectId, {
+    name,
+    url: "https://example.com/material",
+    kind: "document",
+  });
+  await addTaskAttachment(actorId, taskId, { projectFileId: file.id });
+}
+
 describe("task review", () => {
   beforeEach(resetDb);
 
@@ -35,15 +50,9 @@ describe("task review", () => {
       title: "提交报告",
       assigneeIds: [student.id],
     });
-    await addTaskAttachment(student.id, task.id, {
-      name: "实验报告",
-      url: "https://example.com/report",
-    });
+    await attachLink(student.id, project.id, task.id, "实验报告");
     await expect(
-      addTaskAttachment(outsider.id, task.id, {
-        name: "越权",
-        url: "https://example.com/no",
-      }),
+      addTaskAttachment(outsider.id, task.id, { projectFileId: task.id }),
     ).rejects.toThrow("没有权限");
   });
 
@@ -57,10 +66,7 @@ describe("task review", () => {
       "请先添加至少一个文件链接",
     );
 
-    await addTaskAttachment(student.id, task.id, {
-      name: "材料",
-      url: "https://example.com/material",
-    });
+    await attachLink(student.id, project.id, task.id, "材料");
     await submitTaskForReview(student.id, task.id);
 
     const reviews = await listPendingTaskReviewsForAdmin(owner.id);
@@ -75,10 +81,7 @@ describe("task review", () => {
       title: "通过审核",
       assigneeIds: [student.id],
     });
-    await addTaskAttachment(student.id, task.id, {
-      name: "交付",
-      url: "https://example.com/delivery",
-    });
+    await attachLink(student.id, project.id, task.id, "交付");
     await submitTaskForReview(student.id, task.id);
     const [review] = await listPendingTaskReviewsForAdmin(owner.id);
 
@@ -93,10 +96,7 @@ describe("task review", () => {
       title: "退回修改",
       assigneeIds: [student.id],
     });
-    await addTaskAttachment(student.id, task.id, {
-      name: "初稿",
-      url: "https://example.com/draft",
-    });
+    await attachLink(student.id, project.id, task.id, "初稿");
     await submitTaskForReview(student.id, task.id);
     const [review] = await listPendingTaskReviewsForAdmin(owner.id);
 
@@ -113,10 +113,7 @@ describe("task review", () => {
       title: "权限",
       assigneeIds: [student.id],
     });
-    await addTaskAttachment(student.id, task.id, {
-      name: "材料",
-      url: "https://example.com/material",
-    });
+    await attachLink(student.id, project.id, task.id, "材料");
     await submitTaskForReview(student.id, task.id);
     const [review] = await listPendingTaskReviewsForAdmin(owner.id);
 

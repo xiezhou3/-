@@ -3,11 +3,12 @@
 import {
   useActionState,
   useEffect,
+  useRef,
   useState,
   useTransition,
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ExternalLink, Link2, Send } from "lucide-react";
+import { ExternalLink, Link2, Send, Upload, X } from "lucide-react";
 import {
   addTaskAttachmentAction,
   deleteTaskAction,
@@ -17,6 +18,7 @@ import {
   type UpdateTaskState,
 } from "./actions";
 import { LABEL_COLOR_CLASS } from "@/lib/board-columns";
+import type { ProjectFileKind } from "@/lib/project-files";
 import type { BoardTask } from "./board";
 
 export type Option = { id: string; name: string };
@@ -238,83 +240,284 @@ function AttachmentDialog({
   onClose: () => void;
   onCreated: (attachment: BoardTask["attachments"][number]) => void;
 }) {
-  const [name, setName] = useState("");
-  const [url, setUrl] = useState("");
+  const [tab, setTab] = useState<"upload" | "link">("upload");
+  const [uploadKind, setUploadKind] = useState<ProjectFileKind | "auto">("auto");
+  const [linkName, setLinkName] = useState("");
+  const [linkUrl, setLinkUrl] = useState("");
+  const [linkKind, setLinkKind] = useState<ProjectFileKind>("document");
+  const [progress, setProgress] = useState<number | null>(null);
+  const [dragging, setDragging] = useState(false);
   const [error, setError] = useState("");
-  const [pending, startTransition] = useTransition();
+  const fileInput = useRef<HTMLInputElement>(null);
+  const pending = progress !== null;
 
-  function submit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError("");
-    startTransition(async () => {
-      const result = await addTaskAttachmentAction({
-        taskId,
-        projectId,
-        name: name.trim() || undefined,
-        url,
-      });
-      if (!result.ok) {
-        setError(result.error);
-        return;
-      }
-      onCreated(result.attachment);
+  async function attachProjectFile(projectFileId: string) {
+    const result = await addTaskAttachmentAction({
+      taskId,
+      projectId,
+      projectFileId,
     });
+    if (!result.ok) throw new Error(result.error);
+    onCreated(result.attachment);
+  }
+
+  async function uploadFiles(files: File[]) {
+    if (files.length === 0) return;
+    setError("");
+    setProgress(0);
+    try {
+      for (let index = 0; index < files.length; index++) {
+        const file = files[index];
+        const created = await fetch(`/api/projects/${projectId}/file-uploads`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: file.name,
+            sizeBytes: file.size,
+            mimeType: file.type || null,
+            kind: uploadKind,
+          }),
+        });
+        if (!created.ok) throw new Error(await readApiError(created));
+        const payload = (await created.json()) as { id: string };
+
+        await new Promise<void>((resolve, reject) => {
+          const request = new XMLHttpRequest();
+          request.open("PUT", `/api/project-files/${payload.id}/content`);
+          request.setRequestHeader(
+            "Content-Type",
+            file.type || "application/octet-stream",
+          );
+          request.upload.onprogress = (event) => {
+            if (!event.lengthComputable) return;
+            const fileProgress = event.loaded / event.total;
+            setProgress(
+              Math.round(((index + fileProgress) / files.length) * 100),
+            );
+          };
+          request.onload = () => {
+            if (request.status >= 200 && request.status < 300) resolve();
+            else reject(new Error("文件上传失败"));
+          };
+          request.onerror = () => reject(new Error("网络错误，上传失败"));
+          request.send(file);
+        });
+        await attachProjectFile(payload.id);
+      }
+      setProgress(null);
+      onClose();
+    } catch (uploadError) {
+      setProgress(null);
+      setError(uploadError instanceof Error ? uploadError.message : "添加文件失败");
+    }
+  }
+
+  async function addLink() {
+    if (!linkName.trim()) {
+      setError("请填写文件名称");
+      return;
+    }
+    setError("");
+    setProgress(0);
+    try {
+      const response = await fetch(`/api/projects/${projectId}/file-links`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: linkName.trim(),
+          url: linkUrl.trim(),
+          kind: linkKind,
+        }),
+      });
+      if (!response.ok) throw new Error(await readApiError(response));
+      const payload = (await response.json()) as { id: string };
+      await attachProjectFile(payload.id);
+      setProgress(null);
+      onClose();
+    } catch (linkError) {
+      setProgress(null);
+      setError(linkError instanceof Error ? linkError.message : "添加链接失败");
+    }
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      role="dialog"
-      aria-modal="true"
-      aria-label="添加任务文件链接"
-    >
+    <div className="fixed inset-0 z-50 grid place-items-center p-4">
       <button
         type="button"
-        aria-label="关闭"
+        aria-label="关闭添加文件"
         onClick={onClose}
         disabled={pending}
         className="absolute inset-0 bg-ink/45 backdrop-blur-sm"
       />
-      <form onSubmit={submit} className="relative z-10 w-full max-w-md ac-card space-y-4 p-5 shadow-pop">
-        <div>
-          <h3 className="font-display text-base font-semibold text-ink">添加文件链接</h3>
-          <p className="mt-1 text-sm text-ink-soft">把交付文件链接附在任务上，再提交审核。</p>
-        </div>
-        <label className="block space-y-1.5">
-          <span className="text-xs font-medium text-ink-soft">链接名称（可选）</span>
-          <input
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            maxLength={120}
-            className="ac-field"
-            placeholder="例如：设计稿、实验报告"
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-label="添加任务文件"
+        className="relative z-10 w-full max-w-xl rounded-card border border-line bg-surface p-5 shadow-pop"
+      >
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="font-display text-xl font-semibold text-ink">添加文件</h2>
+            <p className="mt-1 text-sm text-ink-soft">文件会同时保存到项目资料并附到任务上。</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
             disabled={pending}
-          />
-        </label>
-        <label className="block space-y-1.5">
-          <span className="text-xs font-medium text-ink-soft">文件链接</span>
-          <input
-            value={url}
-            onChange={(event) => setUrl(event.target.value)}
-            type="url"
-            required
-            className="ac-field"
-            placeholder="https://..."
-            disabled={pending}
-          />
-        </label>
-        {error && <p className="text-sm text-high">{error}</p>}
-        <div className="flex justify-end gap-2">
-          <button type="button" onClick={onClose} disabled={pending} className="ac-btn-ghost">
-            取消
-          </button>
-          <button disabled={pending || !url.trim()} className="ac-btn">
-            {pending ? "添加中…" : "添加链接"}
+            className="grid h-9 w-9 place-items-center rounded-field text-ink-soft hover:bg-sunken disabled:opacity-40"
+            aria-label="关闭"
+          >
+            <X className="h-5 w-5" aria-hidden />
           </button>
         </div>
-      </form>
+
+        <div className="mt-5 flex gap-1 rounded-field bg-sunken p-1">
+          {[
+            { value: "upload" as const, label: "上传文件" },
+            { value: "link" as const, label: "添加链接" },
+          ].map((item) => (
+            <button
+              key={item.value}
+              type="button"
+              onClick={() => {
+                setTab(item.value);
+                setError("");
+              }}
+              disabled={pending}
+              className={`flex-1 rounded-[6px] px-3 py-2 text-sm font-medium transition-colors disabled:opacity-50 ${
+                tab === item.value
+                  ? "bg-surface text-primary shadow-sm"
+                  : "text-ink-soft hover:text-ink"
+              }`}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+
+        {tab === "upload" ? (
+          <div className="mt-4 space-y-4">
+            <label className="block space-y-1.5">
+              <span className="text-xs font-medium text-ink-soft">上传到分类</span>
+              <select
+                value={uploadKind}
+                onChange={(event) =>
+                  setUploadKind(event.target.value as ProjectFileKind | "auto")
+                }
+                className="ac-field"
+                disabled={pending}
+              >
+                <option value="auto">自动识别</option>
+                <option value="code">代码 / 源码压缩包</option>
+                <option value="presentation">PPT / 演示</option>
+                <option value="document">文档</option>
+                <option value="video">视频</option>
+                <option value="audio">音频</option>
+                <option value="other">其他资料</option>
+              </select>
+            </label>
+            <button
+              type="button"
+              onClick={() => fileInput.current?.click()}
+              onDragOver={(event) => {
+                event.preventDefault();
+                setDragging(true);
+              }}
+              onDragLeave={() => setDragging(false)}
+              onDrop={(event) => {
+                event.preventDefault();
+                setDragging(false);
+                void uploadFiles(Array.from(event.dataTransfer.files));
+              }}
+              disabled={pending}
+              className={`flex min-h-44 w-full flex-col items-center justify-center rounded-card border border-dashed p-6 text-center transition-colors ${
+                dragging
+                  ? "border-primary bg-primary-soft"
+                  : "border-line-strong bg-sunken/60 hover:border-primary"
+              } disabled:opacity-50`}
+            >
+              <Upload className="h-8 w-8 text-primary" aria-hidden />
+              <span className="mt-3 text-sm font-medium text-ink">
+                {pending ? `上传中 ${progress}%` : "拖拽文件到这里，或点击选择"}
+              </span>
+              <span className="mt-1 text-xs text-ink-faint">
+                支持源码、压缩包、PPT、文档、视频和音频
+              </span>
+            </button>
+            <input
+              ref={fileInput}
+              type="file"
+              multiple
+              className="sr-only"
+              onChange={(event) => {
+                void uploadFiles(Array.from(event.target.files ?? []));
+                event.target.value = "";
+              }}
+              accept=".ts,.tsx,.js,.jsx,.html,.css,.scss,.vue,.svelte,.py,.java,.go,.rs,.sql,.json,.yml,.yaml,.toml,.sh,.ps1,.ppt,.pptx,.key,.pdf,.doc,.docx,.xls,.xlsx,.txt,.md,.mp4,.mov,.webm,.mp3,.wav,.m4a,.zip,.tar.gz,.tgz,.rar,.7z"
+            />
+          </div>
+        ) : (
+          <div className="mt-4 space-y-4">
+            <label className="block space-y-1.5">
+              <span className="text-xs font-medium text-ink-soft">名称</span>
+              <input
+                value={linkName}
+                onChange={(event) => setLinkName(event.target.value)}
+                placeholder="例如：设计稿、实验报告"
+                className="ac-field"
+                disabled={pending}
+              />
+            </label>
+            <label className="block space-y-1.5">
+              <span className="text-xs font-medium text-ink-soft">链接</span>
+              <input
+                value={linkUrl}
+                onChange={(event) => setLinkUrl(event.target.value)}
+                placeholder="https://"
+                className="ac-field"
+                disabled={pending}
+              />
+            </label>
+            <label className="block space-y-1.5">
+              <span className="text-xs font-medium text-ink-soft">类型</span>
+              <select
+                value={linkKind}
+                onChange={(event) =>
+                  setLinkKind(event.target.value as ProjectFileKind)
+                }
+                className="ac-field"
+                disabled={pending}
+              >
+                <option value="presentation">PPT / 演示</option>
+                <option value="document">文档</option>
+                <option value="code">代码 / 仓库</option>
+                <option value="video">视频</option>
+                <option value="audio">音频</option>
+                <option value="other">其他</option>
+              </select>
+            </label>
+            <button
+              type="button"
+              onClick={addLink}
+              disabled={pending || !linkName.trim() || !linkUrl.trim()}
+              className="ac-btn w-full"
+            >
+              <Link2 className="h-4 w-4" aria-hidden />
+              {pending ? "添加中…" : "添加链接"}
+            </button>
+          </div>
+        )}
+        {error && <p className="mt-3 text-sm text-high">{error}</p>}
+      </section>
     </div>
   );
+}
+
+async function readApiError(response: Response) {
+  const body = (await response.json().catch(() => null)) as
+    | { error?: string }
+    | null;
+  return body?.error ?? "操作失败";
 }
 
 function EditModal({
