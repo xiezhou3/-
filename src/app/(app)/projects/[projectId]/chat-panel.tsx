@@ -1,7 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import { Settings2 } from "lucide-react";
 import { DraftCards, type Draft } from "./draft-cards";
+import { AiSettingsPanel, AiStatusBadge } from "./ai-settings-panel";
+import type { AiSettingsView } from "@/types/ai-settings";
 
 type Option = { id: string; name: string };
 type Msg = { role: "user" | "assistant"; content: string; drafts?: Draft[] };
@@ -11,16 +14,20 @@ export function ChatPanel({
   initialMessages,
   members,
   milestones,
+  aiSettings,
 }: {
   projectId: string;
   initialMessages: Msg[];
   members: Option[];
   milestones: Option[];
+  aiSettings: AiSettingsView;
 }) {
   const [messages, setMessages] = useState<Msg[]>(initialMessages);
   const [input, setInput] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [ai, setAi] = useState<AiSettingsView>(aiSettings);
 
   async function send() {
     const text = input.trim();
@@ -37,7 +44,10 @@ export function ChatPanel({
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error ?? "对话失败");
+        const message: string = data.error ?? "对话失败";
+        setError(message);
+        // 没配密钥时直接把设置面板推到眼前，省得用户猜去哪配
+        if (/API Key|AI 设置/.test(message)) setSettingsOpen(true);
         return;
       }
       setMessages((m) => [...m, { role: "assistant", content: data.text, drafts: data.drafts }]);
@@ -50,7 +60,27 @@ export function ChatPanel({
 
   return (
     <section className="ac-card space-y-3 p-4">
-      <h2 className="font-medium text-ink">项目助手</h2>
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <h2 className="font-medium text-ink">项目助手</h2>
+          <AiStatusBadge view={ai} />
+        </div>
+        <button
+          type="button"
+          onClick={() => setSettingsOpen((v) => !v)}
+          aria-expanded={settingsOpen}
+          aria-label="AI 接口设置"
+          title="AI 接口设置"
+          className="grid h-8 w-8 shrink-0 place-items-center rounded-field border border-line-strong bg-surface text-ink-soft transition-colors hover:border-primary hover:bg-primary-soft hover:text-primary"
+        >
+          <Settings2 className="h-4 w-4" aria-hidden />
+        </button>
+      </div>
+
+      {settingsOpen && (
+        <AiSettingsPanel view={ai} onChange={setAi} onClose={() => setSettingsOpen(false)} />
+      )}
+
       <div className="max-h-96 space-y-2 overflow-y-auto">
         {messages.map((m, i) => (
           <div key={i}>

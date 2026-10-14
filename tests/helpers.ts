@@ -3,6 +3,6 @@ import { sql } from "drizzle-orm";
 
 export async function resetDb() {
   await db.execute(
-    sql`TRUNCATE task_labels, task_attachments, task_review_requests, task_assignees, labels, resource_usages, api_tokens, task_dependencies, messages, conversations, project_comments, project_files, tasks, milestones, projects, team_invitations, team_members, teams, users RESTART IDENTITY CASCADE`,
+    sql`TRUNCATE task_labels, task_attachments, task_review_requests, task_assignees, labels, resource_usages, api_tokens, user_ai_settings, task_dependencies, messages, conversations, project_comments, project_files, tasks, milestones, projects, team_invitations, team_members, teams, users RESTART IDENTITY CASCADE`,
   );
 }

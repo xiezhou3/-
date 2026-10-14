@@ -6,7 +6,7 @@ import {
   persistTurn,
   type ToolTraceEntry,
 } from "./conversation";
-import { getModel } from "./model";
+import { getModelForUser } from "./model";
 
 const SYSTEM_PREAMBLE = `你是 AgileCampus（敏捷校园）的项目管理助手，服务高校科研与课程团队。
 你的职责限于项目管理：拆解目标、排期、指派、跟踪进度、答疑项目现状。你不代做研究、编码或写作等实际工作。
@@ -54,8 +54,9 @@ export async function runAgentTurn(params: {
   const snapshot = await buildProjectSnapshot(actorId, projectId);
   const tools = buildTools(actorId, projectId);
 
+  // 模型来源：调用方注入（测试）优先；否则取本人在「AI 设置」存下的密钥，再退回 .env
   const result = await generateText({
-    model: model ?? getModel(),
+    model: model ?? (await getModelForUser(actorId)),
     system: `${SYSTEM_PREAMBLE}\n\n${snapshot}`,
     tools,
     stopWhen: stepCountIs(5),

@@ -18,6 +18,7 @@ import { ProjectFilesLibrary } from "@/components/project-files/project-files-li
 import { listProjectFiles } from "@/lib/project-file-service";
 import { listProjectComments } from "@/lib/project-comment";
 import { ProjectComments } from "./comments/project-comments";
+import { getAiSettingsView } from "@/lib/agent/ai-settings";
 
 export default async function ProjectPage({
   params,
@@ -36,7 +37,7 @@ export default async function ProjectPage({
   if (!access) notFound();
   const { project, role } = access;
 
-  const [projectMilestones, projectTasks, members, dependencies, teamLabels, projectFiles, commentsPage] = await Promise.all([
+  const [projectMilestones, projectTasks, members, dependencies, teamLabels, projectFiles, commentsPage, aiSettings] = await Promise.all([
     listProjectMilestones(session.user.id, projectId),
     listProjectTasks(session.user.id, projectId),
     listTeamMembers(project.teamId),
@@ -44,6 +45,7 @@ export default async function ProjectPage({
     listTeamLabels(session.user.id, project.teamId),
     listProjectFiles(session.user.id, projectId),
     listProjectComments(session.user.id, projectId, { limit: 20 }),
+    getAiSettingsView(session.user.id),
   ]);
 
   const filters = parseFilters(
@@ -164,6 +166,7 @@ export default async function ProjectPage({
         initialMessages={initialMessages}
         members={members}
         milestones={projectMilestones.map((m) => ({ id: m.id, name: m.title }))}
+        aiSettings={aiSettings}
       />
 
       <ProjectComments

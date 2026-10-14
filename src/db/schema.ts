@@ -465,3 +465,22 @@ export const taskLabels = pgTable(
     index("task_labels_label_idx").on(t.labelId),
   ],
 );
+
+// 用户级 AI 接口配置：密钥以 AUTH_SECRET 派生的 AES-256-GCM 密文保存。
+export const userAiSettings = pgTable(
+  "user_ai_settings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    provider: text("provider").notNull().default("deepseek"),
+    baseUrl: text("base_url").notNull().default("https://api.deepseek.com"),
+    model: text("model").notNull().default("deepseek-v4-flash"),
+    apiKeyCiphertext: text("api_key_ciphertext").notNull(),
+    apiKeyHint: text("api_key_hint").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("user_ai_settings_user_unique").on(t.userId)],
+);
