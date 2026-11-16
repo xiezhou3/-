@@ -6,6 +6,7 @@ import { db } from "@/db";
 import { teamMembers, teams } from "@/db/schema";
 import { TeamForms } from "./team-forms";
 import { TeamRenameButton } from "./team-rename-button";
+import { PageHeader } from "@/components/layout/page-header";
 
 export default async function TeamsPage() {
   const session = await auth();
@@ -23,8 +24,12 @@ export default async function TeamsPage() {
     .where(eq(teamMembers.userId, session.user.id));
 
   return (
-    <main className="mx-auto max-w-2xl space-y-8 py-8">
-      <h1 className="font-display text-2xl font-semibold text-ink">我的团队</h1>
+    <main className="space-y-6">
+      <PageHeader
+        breadcrumbs={[{ label: "工作台", href: "/" }, { label: "团队" }]}
+        title="我的团队"
+        description="团队是成员、标签与资源的边界；项目在团队之下创建。"
+      />
       {myTeams.length === 0 ? (
         <div className="ac-card p-8 text-center text-sm text-ink-soft">
           尚未加入任何团队——在下方创建一个，或凭邀请码加入。

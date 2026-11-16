@@ -4,6 +4,7 @@ import { FileText } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { listMyProjects } from "@/lib/project";
 import { listProjectFileSummaries } from "@/lib/project-file-service";
+import { PageHeader } from "@/components/layout/page-header";
 
 export default async function AllProjectsPage() {
   const session = await auth();
@@ -14,13 +15,12 @@ export default async function AllProjectsPage() {
   );
 
   return (
-    <main className="ac-page space-y-6 py-6">
-      <div>
-        <h1 className="font-display text-2xl font-semibold text-ink">所有项目</h1>
-        <p className="mt-1 text-sm text-ink-soft">
-          我所在团队的全部项目，按任务完成度一览。
-        </p>
-      </div>
+    <main className="space-y-6">
+      <PageHeader
+        breadcrumbs={[{ label: "工作台", href: "/" }, { label: "项目" }]}
+        title="所有项目"
+        description="我所在团队的全部项目，按任务完成度一览。"
+      />
       {projects.length === 0 ? (
         <div className="ac-card p-8 text-center text-sm text-ink-soft">
           暂无项目——先在团队中创建。

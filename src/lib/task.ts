@@ -1,9 +1,10 @@
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, ne, sql } from "drizzle-orm";
 import { db } from "@/db";
 import type { DbTx } from "@/db";
 import {
   labels,
   milestones,
+  projects,
   taskDependencies,
   taskLabels,
   tasks,
@@ -216,6 +217,25 @@ export async function listProjectTasks(actorId: string, projectId: string) {
 }
 
 // 列某任务之下的子任务（直接子级，不递归）
+// 个人工作台：我负责的未完成任务（跨项目），按截止日升序，无截止日排最后。
+// 只按 assigneeId 过滤，不额外校验团队——任务归属的项目本就由指派关系带出。
+export async function listMyOpenTasks(actorId: string) {
+  return db
+    .select({
+      id: tasks.id,
+      title: tasks.title,
+      status: tasks.status,
+      priority: tasks.priority,
+      dueDate: tasks.dueDate,
+      projectId: tasks.projectId,
+      projectName: projects.name,
+    })
+    .from(tasks)
+    .innerJoin(projects, eq(tasks.projectId, projects.id))
+    .where(and(eq(tasks.assigneeId, actorId), ne(tasks.status, "done")))
+    .orderBy(sql`${tasks.dueDate} asc nulls last`);
+}
+
 export async function listSubtasks(actorId: string, parentTaskId: string) {
   const [parent] = await db
     .select({ projectId: tasks.projectId })

@@ -24,6 +24,7 @@ import { GithubRepositoryPanel } from "./github-repository-panel";
 import { ProjectEditDialog } from "./project-edit-dialog";
 import { getProjectRepository } from "@/lib/project-repository-service";
 import { getAiSettingsView } from "@/lib/agent/ai-settings";
+import { PageHeader } from "@/components/layout/page-header";
 
 const PROJECT_STATUS_LABEL: Record<string, string> = {
   active: "进行中",
@@ -99,28 +100,39 @@ export default async function ProjectPage({
   }));
 
   return (
-    <main className="ac-page space-y-5 py-2 sm:space-y-6 sm:py-4">
-      <header className="border-b border-line pb-5">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div className="flex min-w-0 items-start gap-3">
-            <span
-              aria-hidden
-              className="mt-0.5 grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary-soft text-primary"
-            >
-              <FolderKanban className="h-5 w-5" />
+    <main className="space-y-5 sm:space-y-6">
+      <PageHeader
+        breadcrumbs={[
+          { label: "工作台", href: "/" },
+          { label: "项目", href: "/projects" },
+          { label: project.name },
+        ]}
+        icon={
+          <span
+            aria-hidden
+            className="grid h-10 w-10 place-items-center rounded-xl bg-primary-soft text-primary"
+          >
+            <FolderKanban className="h-5 w-5" />
+          </span>
+        }
+        title={project.name}
+        description={project.description}
+        meta={
+          <>
+            <span className="inline-flex items-center gap-1.5">
+              <CalendarRange className="h-3.5 w-3.5 text-ink-faint" aria-hidden />
+              {project.startDate ?? "未设置"} 至 {project.endDate ?? "未设置"}
             </span>
-            <div className="min-w-0">
-              <h1 className="font-display text-2xl font-semibold text-ink sm:text-3xl">
-                {project.name}
-              </h1>
-              {project.description && (
-                <p className="mt-1 max-w-3xl text-sm leading-6 text-ink-soft">
-                  {project.description}
-                </p>
-              )}
-            </div>
-          </div>
-          <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
+            <span className="ac-badge bg-surface text-ink-soft">
+              {PROJECT_STATUS_LABEL[project.status] ?? project.status}
+            </span>
+            <span className="text-ink-faint">
+              共 {projectTasks.length} 个任务 · {projectFiles.length} 份资料
+            </span>
+          </>
+        }
+        actions={
+          <>
             <ProjectEditDialog
               projectId={projectId}
               canEdit={isAdmin}
@@ -138,21 +150,9 @@ export default async function ProjectPage({
             >
               时间线
             </Link>
-          </div>
-        </div>
-        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-ink-soft">
-          <span className="inline-flex items-center gap-1.5">
-            <CalendarRange className="h-3.5 w-3.5 text-ink-faint" aria-hidden />
-            {project.startDate ?? "未设置"} 至 {project.endDate ?? "未设置"}
-          </span>
-          <span className="ac-badge bg-surface text-ink-soft">
-            {PROJECT_STATUS_LABEL[project.status] ?? project.status}
-          </span>
-          <span className="text-ink-faint">
-            共 {projectTasks.length} 个任务 · {projectFiles.length} 份资料
-          </span>
-        </div>
-      </header>
+          </>
+        }
+      />
 
       <WorkspaceTabs
         boardCount={projectTasks.length}
