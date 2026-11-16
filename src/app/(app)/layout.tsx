@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { Mail } from "lucide-react";
 import { auth, signOut } from "@/lib/auth";
 import { countMyPendingInvitations } from "@/lib/invitation";
+import { NavLinks } from "./nav-links";
 
 export default async function AppLayout({
   children,
@@ -28,26 +29,7 @@ export default async function AppLayout({
               AgileCampus
             </span>
           </Link>
-          <nav className="flex min-w-0 items-center gap-1 overflow-x-auto">
-            <Link
-              href="/projects"
-              className="rounded-field px-2.5 py-1.5 text-sm text-ink-soft transition-colors hover:bg-primary-soft hover:text-primary"
-            >
-              所有项目
-            </Link>
-            <Link
-              href="/teams"
-              className="rounded-field px-2.5 py-1.5 text-sm text-ink-soft transition-colors hover:bg-primary-soft hover:text-primary"
-            >
-              我的团队
-            </Link>
-            <Link
-              href="/settings/tokens"
-              className="rounded-field px-2.5 py-1.5 text-sm text-ink-soft transition-colors hover:bg-primary-soft hover:text-primary"
-            >
-              设置
-            </Link>
-          </nav>
+          <NavLinks />
         </div>
         <div className="flex shrink-0 items-center gap-2 sm:gap-3">
           <Link

@@ -71,6 +71,13 @@ body {
 }
 
 @layer components {
+  /* 页面统一容器：与顶部导航同宽，避免跨页切换时宽度跳变 */
+  .ac-page {
+    margin-inline: auto;
+    width: 100%;
+    max-width: 88rem;
+  }
+
   /* 卡片面 */
   .ac-card {
     border-radius: var(--radius-card);

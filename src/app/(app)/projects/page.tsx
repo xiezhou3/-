@@ -14,14 +14,19 @@ export default async function AllProjectsPage() {
   );
 
   return (
-    <main className="mx-auto max-w-3xl space-y-8 py-8">
-      <h1 className="font-display text-2xl font-semibold text-ink">所有项目</h1>
+    <main className="ac-page space-y-6 py-6">
+      <div>
+        <h1 className="font-display text-2xl font-semibold text-ink">所有项目</h1>
+        <p className="mt-1 text-sm text-ink-soft">
+          我所在团队的全部项目，按任务完成度一览。
+        </p>
+      </div>
       {projects.length === 0 ? (
         <div className="ac-card p-8 text-center text-sm text-ink-soft">
           暂无项目——先在团队中创建。
         </div>
       ) : (
-        <ul className="grid gap-3 sm:grid-cols-2">
+        <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {projects.map((p) => {
             const pct = p.taskTotal > 0 ? Math.round((p.doneCount / p.taskTotal) * 100) : 0;
             const fileSummary = fileSummaries.get(p.id) ?? {

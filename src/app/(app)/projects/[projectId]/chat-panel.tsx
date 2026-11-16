@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Settings2 } from "lucide-react";
+import { Settings2, Sparkles } from "lucide-react";
 import { DraftCards, type Draft } from "./draft-cards";
 import { AiSettingsPanel, AiStatusBadge } from "./ai-settings-panel";
 import type { AiSettingsView } from "@/types/ai-settings";
@@ -9,18 +9,26 @@ import type { AiSettingsView } from "@/types/ai-settings";
 type Option = { id: string; name: string };
 type Msg = { role: "user" | "assistant"; content: string; drafts?: Draft[] };
 
+const SUGGESTIONS = [
+  "把这个项目拆成可执行的任务",
+  "这周我应该先做什么？",
+  "按里程碑帮我排一下期",
+];
+
 export function ChatPanel({
   projectId,
   initialMessages,
   members,
   milestones,
   aiSettings,
+  variant = "card",
 }: {
   projectId: string;
   initialMessages: Msg[];
   members: Option[];
   milestones: Option[];
   aiSettings: AiSettingsView;
+  variant?: "card" | "panel";
 }) {
   const [messages, setMessages] = useState<Msg[]>(initialMessages);
   const [input, setInput] = useState("");
@@ -28,9 +36,10 @@ export function ChatPanel({
   const [error, setError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [ai, setAi] = useState<AiSettingsView>(aiSettings);
+  const panel = variant === "panel";
 
-  async function send() {
-    const text = input.trim();
+  async function sendText(raw: string) {
+    const text = raw.trim();
     if (!text || pending) return;
     setInput("");
     setError(null);
@@ -59,9 +68,16 @@ export function ChatPanel({
   }
 
   return (
-    <section className="ac-card space-y-3 p-4">
-      <div className="flex items-start justify-between gap-3">
+    <section
+      className={`ac-card ${
+        panel
+          ? "flex flex-col gap-3 p-4 lg:h-[calc(100dvh-8rem)] lg:min-h-[30rem]"
+          : "space-y-3 p-4"
+      }`}
+    >
+      <div className="flex shrink-0 items-start justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
+          <Sparkles className="h-4 w-4 text-accent" aria-hidden />
           <h2 className="font-medium text-ink">项目助手</h2>
           <AiStatusBadge view={ai} />
         </div>
@@ -81,33 +97,83 @@ export function ChatPanel({
         <AiSettingsPanel view={ai} onChange={setAi} onClose={() => setSettingsOpen(false)} />
       )}
 
-      <div className="max-h-96 space-y-2 overflow-y-auto">
+      <div
+        className={`ac-scrollbar space-y-2 overflow-y-auto ${
+          panel ? "max-h-80 lg:max-h-none lg:min-h-0 lg:flex-1" : "max-h-96"
+        }`}
+        aria-live="polite"
+      >
         {messages.map((m, i) => (
           <div key={i}>
-            <div className={`rounded-lg p-2.5 text-sm ${m.role === "user" ? "bg-sunken" : "bg-primary-soft"}`}>
-              <span className="mr-2 text-xs text-ink-faint">{m.role === "user" ? "我" : "助手"}</span>
+            <div
+              className={`rounded-lg p-2.5 text-sm ${
+                m.role === "user" ? "bg-sunken" : "border border-line bg-primary-soft/60"
+              }`}
+            >
+              <span className="mr-2 text-xs text-ink-faint">
+                {m.role === "user" ? "我" : "助手"}
+              </span>
               <span className="whitespace-pre-wrap text-ink">{m.content}</span>
             </div>
             {m.drafts && m.drafts.length > 0 && (
-              <DraftCards projectId={projectId} drafts={m.drafts} members={members} milestones={milestones} />
+              <DraftCards
+                projectId={projectId}
+                drafts={m.drafts}
+                members={members}
+                milestones={milestones}
+              />
             )}
           </div>
         ))}
+
         {messages.length === 0 && (
-          <p className="text-sm text-ink-soft">向助手提问，如「当前进度如何？」或「把调研拆成任务」</p>
+          <div className="rounded-lg border border-dashed border-line bg-sunken/60 p-3">
+            <p className="text-sm font-medium text-ink">说说你想推进的事</p>
+            <p className="mt-1 text-xs leading-5 text-ink-soft">
+              助手会先读项目现状，再给出任务草案；确认之后才会写进看板。
+            </p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {SUGGESTIONS.map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  disabled={pending}
+                  onClick={() => void sendText(s)}
+                  className="rounded-full border border-line bg-surface px-2.5 py-1 text-xs text-ink-soft transition-colors hover:border-primary hover:bg-primary-soft hover:text-primary disabled:opacity-50"
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {pending && (
+          <div className="flex items-center gap-2 rounded-lg border border-line bg-surface p-2.5 text-xs text-ink-faint">
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" aria-hidden />
+            正在读项目数据、组织回答…
+          </div>
         )}
       </div>
+
       {error && <p className="text-sm text-high">{error}</p>}
-      <div className="flex gap-2">
+
+      <div className="flex shrink-0 gap-2">
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && send()}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.nativeEvent.isComposing) void sendText(input);
+          }}
           placeholder="问点什么…"
           className="ac-field flex-1 text-sm"
           disabled={pending}
         />
-        <button onClick={send} disabled={pending} className="ac-btn px-3 py-2 text-sm">
+        <button
+          onClick={() => void sendText(input)}
+          disabled={pending}
+          className="ac-btn px-3 py-2 text-sm"
+        >
           {pending ? "思考中…" : "发送"}
         </button>
       </div>

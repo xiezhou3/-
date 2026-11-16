@@ -15,6 +15,7 @@ import { MilestoneSection } from "./milestone-section";
 import { Board } from "./board";
 import { ChatPanel } from "./chat-panel";
 import { FilterBar } from "./filter-bar";
+import { WorkspaceTabs } from "./workspace-tabs";
 import { ProjectFilesLibrary } from "@/components/project-files/project-files-library";
 import { listProjectFiles } from "@/lib/project-file-service";
 import { listProjectComments } from "@/lib/project-comment";
@@ -89,8 +90,15 @@ export default async function ProjectPage({
   const initialMessages = history
     .filter((m) => m.role === "user" || m.role === "assistant")
     .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
+
+  const memberOptions = members.map((m) => ({ id: m.id, name: m.name }));
+  const milestoneOptions = projectMilestones.map((m) => ({
+    id: m.id,
+    name: m.title,
+  }));
+
   return (
-    <main className="mx-auto w-full max-w-[92rem] space-y-6 py-2 sm:space-y-8 sm:py-4">
+    <main className="ac-page space-y-5 py-2 sm:space-y-6 sm:py-4">
       <header className="border-b border-line pb-5">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex min-w-0 items-start gap-3">
@@ -112,15 +120,12 @@ export default async function ProjectPage({
             </div>
           </div>
           <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
-            <Link href={`/projects/${projectId}/files`} className="ac-btn-ghost whitespace-nowrap">
-              文件
-            </Link>
-            <a
+            <Link
               href={`/projects/${projectId}/timeline`}
               className="ac-btn-ghost whitespace-nowrap"
             >
               时间线
-            </a>
+            </Link>
           </div>
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-ink-soft">
@@ -131,91 +136,106 @@ export default async function ProjectPage({
           <span className="ac-badge bg-surface text-ink-soft">
             {PROJECT_STATUS_LABEL[project.status] ?? project.status}
           </span>
+          <span className="text-ink-faint">
+            共 {projectTasks.length} 个任务 · {projectFiles.length} 份资料
+          </span>
         </div>
       </header>
 
-      <GithubRepositoryPanel
-        key={`github-${projectId}-${repository?.lastSyncedAt ?? "empty"}`}
-        projectId={projectId}
-        repository={repository}
-        canManage={isAdmin}
-      />
-
-      <MilestoneSection
-        projectId={projectId}
-        milestones={projectMilestones}
-        isAdmin={isAdmin}
-      />
-
-      <section className="space-y-3">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <h2 className="font-display text-lg font-semibold text-ink">看板</h2>
-            <p className="mt-0.5 text-xs text-ink-faint">
-              当前展示 {visibleTasks.length} / {projectTasks.length} 个任务
-            </p>
+      <WorkspaceTabs
+        boardCount={projectTasks.length}
+        fileCount={projectFiles.length}
+        discussionCount={commentsPage.totalCount}
+        aside={
+          <ChatPanel
+            projectId={projectId}
+            initialMessages={initialMessages}
+            members={memberOptions}
+            milestones={milestoneOptions}
+            aiSettings={aiSettings}
+            variant="panel"
+          />
+        }
+        board={
+          <div className="space-y-4">
+            <MilestoneSection
+              projectId={projectId}
+              milestones={projectMilestones}
+              isAdmin={isAdmin}
+            />
+            <section className="space-y-3">
+              <div className="flex flex-wrap items-end justify-between gap-3">
+                <div>
+                  <h2 className="font-display text-lg font-semibold text-ink">看板</h2>
+                  <p className="mt-0.5 text-xs text-ink-faint">
+                    当前展示 {visibleTasks.length} / {projectTasks.length} 个任务
+                  </p>
+                </div>
+                {visibleTasks.length !== projectTasks.length && (
+                  <span className="ac-badge bg-accent-soft text-accent">已筛选</span>
+                )}
+              </div>
+              <FilterBar
+                members={memberOptions}
+                milestones={milestoneOptions}
+                labels={teamLabels.map((l) => ({ id: l.id, name: l.name }))}
+                visible={visibleTasks.length}
+                total={projectTasks.length}
+              />
+              <Board
+                projectId={projectId}
+                groupBy={filters.group}
+                tasks={visibleTasks.map((t) => ({
+                  id: t.id,
+                  title: t.title,
+                  description: t.description,
+                  completionNote: t.completionNote,
+                  status: t.status,
+                  priority: t.priority,
+                  startDate: t.startDate,
+                  dueDate: t.dueDate,
+                  assigneeName: t.assigneeName,
+                  assigneeId: t.assigneeId,
+                  milestoneId: t.milestoneId,
+                  labels: t.labels,
+                }))}
+                canWrite={canWrite}
+                members={members}
+                milestones={milestoneOptions}
+                allTasks={projectTasks.map((t) => ({ id: t.id, title: t.title }))}
+                allLabels={teamLabels.map((l) => ({ id: l.id, name: l.name }))}
+                dependencies={dependencies}
+              />
+            </section>
           </div>
-          {visibleTasks.length !== projectTasks.length && (
-            <span className="ac-badge bg-accent-soft text-accent">已筛选</span>
-          )}
-        </div>
-        <FilterBar
-          members={members.map((m) => ({ id: m.id, name: m.name }))}
-          milestones={projectMilestones.map((m) => ({ id: m.id, name: m.title }))}
-          labels={teamLabels.map((l) => ({ id: l.id, name: l.name }))}
-          visible={visibleTasks.length}
-          total={projectTasks.length}
-        />
-        <Board
-          projectId={projectId}
-          groupBy={filters.group}
-          tasks={visibleTasks.map((t) => ({
-            id: t.id,
-            title: t.title,
-            description: t.description,
-            completionNote: t.completionNote,
-            status: t.status,
-            priority: t.priority,
-            startDate: t.startDate,
-            dueDate: t.dueDate,
-            assigneeName: t.assigneeName,
-            assigneeId: t.assigneeId,
-            milestoneId: t.milestoneId,
-            labels: t.labels,
-          }))}
-          canWrite={canWrite}
-          members={members}
-          milestones={projectMilestones.map((m) => ({ id: m.id, name: m.title }))}
-          allTasks={projectTasks.map((t) => ({ id: t.id, title: t.title }))}
-          allLabels={teamLabels.map((l) => ({ id: l.id, name: l.name }))}
-          dependencies={dependencies}
-        />
-      </section>
-
-      <ProjectFilesLibrary
-        key={`files-${projectId}`}
-        projectId={projectId}
-        projectName={project.name}
-        files={projectFiles}
-        variant="compact"
-        viewAllHref={`/projects/${projectId}/files`}
-      />
-
-      <ChatPanel
-        projectId={projectId}
-        initialMessages={initialMessages}
-        members={members}
-        milestones={projectMilestones.map((m) => ({ id: m.id, name: m.title }))}
-        aiSettings={aiSettings}
-      />
-
-      <ProjectComments
-        key={`comments-${projectId}`}
-        projectId={projectId}
-        initialThreads={commentsPage.threads}
-        initialTotalCount={commentsPage.totalCount}
-        initialHasMore={commentsPage.hasMore}
-        initialCursor={commentsPage.nextCursor}
+        }
+        files={
+          <div className="space-y-4">
+            <GithubRepositoryPanel
+              key={`github-${projectId}-${repository?.lastSyncedAt ?? "empty"}`}
+              projectId={projectId}
+              repository={repository}
+              canManage={isAdmin}
+            />
+            <ProjectFilesLibrary
+              key={`files-${projectId}`}
+              projectId={projectId}
+              projectName={project.name}
+              files={projectFiles}
+              variant="full"
+            />
+          </div>
+        }
+        discussion={
+          <ProjectComments
+            key={`comments-${projectId}`}
+            projectId={projectId}
+            initialThreads={commentsPage.threads}
+            initialTotalCount={commentsPage.totalCount}
+            initialHasMore={commentsPage.hasMore}
+            initialCursor={commentsPage.nextCursor}
+          />
+        }
       />
     </main>
   );
