@@ -22,6 +22,7 @@ import { listProjectComments } from "@/lib/project-comment";
 import { ProjectComments } from "./comments/project-comments";
 import { GithubRepositoryPanel } from "./github-repository-panel";
 import { ProjectEditDialog } from "./project-edit-dialog";
+import { LabelManagerDialog } from "./label-manager-dialog";
 import { getProjectRepository } from "@/lib/project-repository-service";
 import { getAiSettingsView } from "@/lib/agent/ai-settings";
 import { PageHeader } from "@/components/layout/page-header";
@@ -133,6 +134,16 @@ export default async function ProjectPage({
         }
         actions={
           <>
+            <LabelManagerDialog
+              projectId={projectId}
+              teamId={project.teamId}
+              isAdmin={isAdmin}
+              labels={teamLabels.map((label) => ({
+                id: label.id,
+                name: label.name,
+                color: label.color,
+              }))}
+            />
             <ProjectEditDialog
               projectId={projectId}
               canEdit={isAdmin}

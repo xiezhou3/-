@@ -1,10 +1,14 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { FileText } from "lucide-react";
+import { and, eq } from "drizzle-orm";
 import { auth } from "@/lib/auth";
+import { db } from "@/db";
+import { teamMembers, teams } from "@/db/schema";
 import { listMyProjects } from "@/lib/project";
 import { listProjectFileSummaries } from "@/lib/project-file-service";
 import { PageHeader } from "@/components/layout/page-header";
+import { NewProjectDialog } from "./new-project-dialog";
 
 export default async function AllProjectsPage() {
   const session = await auth();
@@ -13,6 +17,13 @@ export default async function AllProjectsPage() {
   const fileSummaries = await listProjectFileSummaries(
     projects.map((project) => project.id),
   );
+  const adminTeams = await db
+    .select({ id: teams.id, name: teams.name })
+    .from(teamMembers)
+    .innerJoin(teams, eq(teamMembers.teamId, teams.id))
+    .where(
+      and(eq(teamMembers.userId, session.user.id), eq(teamMembers.role, "admin")),
+    );
 
   return (
     <main className="space-y-6">
@@ -20,6 +31,7 @@ export default async function AllProjectsPage() {
         breadcrumbs={[{ label: "工作台", href: "/" }, { label: "项目" }]}
         title="所有项目"
         description="我所在团队的全部项目，按任务完成度一览。"
+        actions={<NewProjectDialog teams={adminTeams} />}
       />
       {projects.length === 0 ? (
         <div className="ac-card p-8 text-center text-sm text-ink-soft">

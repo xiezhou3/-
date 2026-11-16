@@ -32,6 +32,17 @@ export async function createUser(input: {
   }
 }
 
+// 修改昵称：只动展示名，邮箱与密码不在此处变更。
+export async function updateUserName(userId: string, name: string) {
+  const [updated] = await db
+    .update(users)
+    .set({ name })
+    .where(eq(users.id, userId))
+    .returning({ id: users.id, name: users.name });
+  if (!updated) throw new AppError("用户不存在");
+  return updated;
+}
+
 // 绑定当前用户的飞书身份。open_id 唯一——已被他人绑定则转译友好错误。
 export async function bindFeishu(userId: string, input: { openId: string; name: string }) {
   try {

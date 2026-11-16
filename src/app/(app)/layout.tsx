@@ -18,7 +18,7 @@ export default async function AppLayout({
   return (
     <div className="min-h-screen">
       {/* 桌面端常驻侧栏：导航始终可见，任意页面都能横向切换 */}
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-60 flex-col border-r border-line bg-surface lg:flex">
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-52 flex-col border-r border-line bg-surface lg:flex">
         <Link href="/" className="flex items-center gap-2.5 border-b border-line px-4 py-4">
           <span
             aria-hidden
@@ -55,7 +55,7 @@ export default async function AppLayout({
         </div>
       </aside>
 
-      <div className="lg:pl-60">
+      <div className="lg:pl-52">
         <header className="sticky top-0 z-20 border-b border-line bg-canvas/85 backdrop-blur-md">
           <div className="flex items-center justify-between gap-3 px-4 py-2.5 sm:px-6 lg:px-8">
             <Link href="/" className="flex min-w-0 items-center gap-2 lg:hidden">

@@ -64,9 +64,6 @@ export default async function TeamsPage() {
                 <Link href={`/teams/${t.id}/members`} className="ac-btn-ghost">
                   成员管理
                 </Link>
-                <Link href={`/teams/${t.id}/labels`} className="ac-btn-ghost">
-                  标签
-                </Link>
               </div>
             </li>
           ))}

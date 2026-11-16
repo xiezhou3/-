@@ -6,6 +6,7 @@ import {
   useState,
   type HTMLAttributes,
 } from "react";
+import { createPortal } from "react-dom";
 import { useSearchParams } from "next/navigation";
 import { useDraggable } from "@dnd-kit/core";
 import { CalendarDays, GripVertical, Pencil, UserRound } from "lucide-react";
@@ -252,7 +253,9 @@ function EditModal({
   const updateError = updateState && "error" in updateState ? updateState.error : null;
   const deleteError = deleteState && "error" in deleteState ? deleteState.error : null;
 
-  return (
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4 sm:items-center"
       role="dialog"
@@ -265,7 +268,7 @@ function EditModal({
         onClick={onClose}
         className="fixed inset-0 cursor-default bg-ink/45 backdrop-blur-sm"
       />
-      <div className="relative z-10 my-auto w-full max-w-md ac-card p-5 shadow-pop">
+      <div className="relative z-10 my-auto w-full max-w-lg ac-card p-5 shadow-pop">
         <header className="mb-3 flex items-center justify-between">
           <h3 className="font-display text-base font-semibold text-ink">编辑任务</h3>
           <button
@@ -408,7 +411,8 @@ function EditModal({
           </button>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

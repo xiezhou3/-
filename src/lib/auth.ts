@@ -12,7 +12,7 @@ const credentialsSchema = z.object({
   password: z.string().min(1),
 });
 
-export const { handlers, auth, signIn, signOut } = NextAuth({
+export const { handlers, auth, signIn, signOut, unstable_update } = NextAuth({
   session: { strategy: "jwt" },
   pages: { signIn: "/login" },
   providers: [
@@ -51,8 +51,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     }),
   ],
   callbacks: {
-    jwt({ token, user }) {
+    jwt({ token, user, trigger, session }) {
       if (user) token.id = user.id;
+      // 资料页改名后同步 JWT 展示名，避免顶部/工作台仍显示旧名字
+      if (trigger === "update" && session?.user?.name) token.name = session.user.name;
       return token;
     },
     session({ session, token }) {
