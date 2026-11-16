@@ -58,21 +58,18 @@ export default async function WorkspacePage() {
       value: overdue.length,
       icon: AlertTriangle,
       tone: "text-high",
-      hint: "需要尽快处理",
     },
     {
       label: "今天到期",
       value: dueToday.length,
       icon: CalendarClock,
       tone: "text-accent",
-      hint: "今天的重点",
     },
     {
       label: "本周到期",
       value: dueThisWeek.length,
       icon: CalendarDays,
       tone: "text-primary",
-      hint: "未来 7 天",
     },
   ];
 
@@ -80,7 +77,6 @@ export default async function WorkspacePage() {
     <main className="space-y-6">
       <PageHeader
         title={`${greeting()}，${session.user.name}`}
-        description="这里汇总了指派给你的任务和所在团队的项目。先处理逾期的，再安排本周。"
         meta={
           <span className="inline-flex items-center gap-1.5">
             <CalendarDays className="h-3.5 w-3.5 text-ink-faint" aria-hidden />
@@ -90,7 +86,7 @@ export default async function WorkspacePage() {
       />
 
       <section className="grid gap-3 sm:grid-cols-3" aria-label="任务概况">
-        {stats.map(({ label, value, icon: Icon, tone, hint }) => (
+        {stats.map(({ label, value, icon: Icon, tone }) => (
           <div key={label} className="ac-card flex items-center gap-3 p-4">
             <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-sunken ${tone}`}>
               <Icon className="h-5 w-5" aria-hidden />
@@ -100,7 +96,6 @@ export default async function WorkspacePage() {
               <span className="block font-display text-2xl font-semibold leading-tight tabular-nums text-ink">
                 {value}
               </span>
-              <span className="block text-[11px] text-ink-faint">{hint}</span>
             </span>
           </div>
         ))}

@@ -42,7 +42,6 @@ export default async function SettingsPage({
       <PageHeader
         breadcrumbs={[{ label: "工作台", href: "/" }, { label: "设置" }]}
         title="设置"
-        description="个人信息、通知方式与外部程序的访问凭据。"
         meta={
           row?.createdAt ? (
             <span>注册于 {fmt(row.createdAt)}</span>

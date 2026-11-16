@@ -42,7 +42,6 @@ export default async function TeamProjectsPage({
           { label: team.name },
         ]}
         title="项目"
-        description={`${team.name} 下的全部项目。`}
         meta={<span>{projects.length} 个项目</span>}
         actions={
           isAdmin ? (

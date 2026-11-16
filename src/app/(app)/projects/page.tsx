@@ -30,7 +30,6 @@ export default async function AllProjectsPage() {
       <PageHeader
         breadcrumbs={[{ label: "工作台", href: "/" }, { label: "项目" }]}
         title="所有项目"
-        description="我所在团队的全部项目，按任务完成度一览。"
         actions={<NewProjectDialog teams={adminTeams} />}
       />
       {projects.length === 0 ? (

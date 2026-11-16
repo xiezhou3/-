@@ -28,7 +28,6 @@ export default async function TeamsPage() {
       <PageHeader
         breadcrumbs={[{ label: "工作台", href: "/" }, { label: "团队" }]}
         title="我的团队"
-        description="团队是成员、标签与资源的边界；项目在团队之下创建。"
       />
       {myTeams.length === 0 ? (
         <div className="ac-card p-8 text-center text-sm text-ink-soft">
