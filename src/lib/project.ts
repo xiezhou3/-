@@ -135,6 +135,51 @@ export async function listProjectMilestones(actorId: string, projectId: string) 
     .orderBy(milestones.targetDate);
 }
 
+// 里程碑编辑：改标题/目标日、标记完成或重开。权限沿 createMilestone（团队 admin）。
+export async function updateMilestone(
+  actorId: string,
+  milestoneId: string,
+  patch: {
+    title?: string;
+    targetDate?: string | null;
+    status?: "open" | "done";
+  },
+) {
+  const [current] = await db
+    .select()
+    .from(milestones)
+    .where(eq(milestones.id, milestoneId));
+  if (!current) throw new AppError("里程碑不存在");
+
+  const access = await getProjectForUser(actorId, current.projectId);
+  if (!access || access.role !== "admin") throw new ForbiddenError();
+
+  const [updated] = await db
+    .update(milestones)
+    .set({
+      ...(patch.title !== undefined && { title: patch.title }),
+      ...(patch.targetDate !== undefined && { targetDate: patch.targetDate }),
+      ...(patch.status !== undefined && { status: patch.status }),
+    })
+    .where(eq(milestones.id, milestoneId))
+    .returning();
+  return updated;
+}
+
+// 删除里程碑：关联任务的外键为 set null，任务本身保留。
+export async function deleteMilestone(actorId: string, milestoneId: string) {
+  const [current] = await db
+    .select()
+    .from(milestones)
+    .where(eq(milestones.id, milestoneId));
+  if (!current) throw new AppError("里程碑不存在");
+
+  const access = await getProjectForUser(actorId, current.projectId);
+  if (!access || access.role !== "admin") throw new ForbiddenError();
+
+  await db.delete(milestones).where(eq(milestones.id, milestoneId));
+}
+
 // 跨团队聚合：我所在全部团队的项目 + 团队名 + 任务统计
 export async function listMyProjects(actorId: string) {
   const memberships = await db

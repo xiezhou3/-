@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { auth } from "@/lib/auth";
 import { createTask, updateTask, deleteTask, setTaskSuccessors } from "@/lib/task";
 import { setTaskLabels } from "@/lib/label";
-import { createMilestone } from "@/lib/project";
+import { createMilestone, updateMilestone, deleteMilestone } from "@/lib/project";
 import { AppError, ForbiddenError } from "@/lib/errors";
 
 export type FormState = { error: string } | null;
@@ -118,6 +118,73 @@ export async function createMilestoneAction(
     throw e;
   }
   revalidatePath(`/projects/${parsed.data.projectId}`);
+  return null;
+}
+
+export async function updateMilestoneAction(input: {
+  projectId: string;
+  milestoneId: string;
+  title: string;
+  targetDate: string | null;
+}): Promise<FormState> {
+  const session = await auth();
+  if (!session?.user) return { error: "请先登录" };
+  const title = input.title.trim();
+  if (!title) return { error: "请填写里程碑标题" };
+  if (input.targetDate && !/^\d{4}-\d{2}-\d{2}$/.test(input.targetDate)) {
+    return { error: "日期格式不正确" };
+  }
+
+  try {
+    await updateMilestone(session.user.id, input.milestoneId, {
+      title,
+      targetDate: input.targetDate,
+    });
+  } catch (e) {
+    if (e instanceof ForbiddenError) return { error: "仅团队管理员可修改里程碑" };
+    if (e instanceof AppError) return { error: e.message };
+    throw e;
+  }
+  revalidatePath(`/projects/${input.projectId}`);
+  return null;
+}
+
+export async function setMilestoneStatusAction(input: {
+  projectId: string;
+  milestoneId: string;
+  status: "open" | "done";
+}): Promise<FormState> {
+  const session = await auth();
+  if (!session?.user) return { error: "请先登录" };
+
+  try {
+    await updateMilestone(session.user.id, input.milestoneId, {
+      status: input.status,
+    });
+  } catch (e) {
+    if (e instanceof ForbiddenError) return { error: "仅团队管理员可修改里程碑" };
+    if (e instanceof AppError) return { error: e.message };
+    throw e;
+  }
+  revalidatePath(`/projects/${input.projectId}`);
+  return null;
+}
+
+export async function deleteMilestoneAction(input: {
+  projectId: string;
+  milestoneId: string;
+}): Promise<FormState> {
+  const session = await auth();
+  if (!session?.user) return { error: "请先登录" };
+
+  try {
+    await deleteMilestone(session.user.id, input.milestoneId);
+  } catch (e) {
+    if (e instanceof ForbiddenError) return { error: "仅团队管理员可删除里程碑" };
+    if (e instanceof AppError) return { error: e.message };
+    throw e;
+  }
+  revalidatePath(`/projects/${input.projectId}`);
   return null;
 }
 
