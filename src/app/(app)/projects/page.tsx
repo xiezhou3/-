@@ -37,7 +37,12 @@ export default async function AllProjectsPage() {
               code: 0,
             };
             return (
-              <li key={p.id} className="ac-card group p-4 transition-shadow hover:shadow-pop">
+              <li
+                key={p.id}
+                className={`ac-card group p-4 transition-shadow hover:shadow-pop ${
+                  p.status === "archived" ? "opacity-70" : ""
+                }`}
+              >
                 <div className="flex items-start justify-between gap-2">
                   <Link
                     href={`/projects/${p.id}`}

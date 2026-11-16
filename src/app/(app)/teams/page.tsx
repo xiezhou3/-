@@ -5,6 +5,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/db";
 import { teamMembers, teams } from "@/db/schema";
 import { TeamForms } from "./team-forms";
+import { TeamRenameButton } from "./team-rename-button";
 
 export default async function TeamsPage() {
   const session = await auth();
@@ -39,6 +40,9 @@ export default async function TeamsPage() {
                       {t.name}
                     </span>
                     <RoleBadge role={t.role} />
+                    {t.role === "admin" && (
+                      <TeamRenameButton teamId={t.id} name={t.name} />
+                    )}
                   </div>
                   <p className="mt-1 text-xs text-ink-faint">
                     邀请码 <span className="font-mono text-ink-soft">{t.inviteCode}</span>

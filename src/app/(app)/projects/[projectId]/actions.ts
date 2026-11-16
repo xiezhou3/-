@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { auth } from "@/lib/auth";
 import { createTask, updateTask, deleteTask, setTaskSuccessors } from "@/lib/task";
 import { setTaskLabels } from "@/lib/label";
-import { createMilestone, updateMilestone, deleteMilestone } from "@/lib/project";
+import { createMilestone, updateMilestone, deleteMilestone, updateProject } from "@/lib/project";
 import { AppError, ForbiddenError } from "@/lib/errors";
 
 export type FormState = { error: string } | null;
@@ -118,6 +118,51 @@ export async function createMilestoneAction(
     throw e;
   }
   revalidatePath(`/projects/${parsed.data.projectId}`);
+  return null;
+}
+
+const updateProjectSchema = z.object({
+  projectId: z.uuid(),
+  name: z.string().trim().min(1, "请填写项目名称").max(80, "项目名称不超过 80 字"),
+  description: z.string().trim().max(2000, "项目描述不超过 2000 字").nullable(),
+  startDate: z.iso.date("开始日期格式不正确").nullable(),
+  endDate: z.iso.date("结束日期格式不正确").nullable(),
+  status: z.enum(["active", "archived"]),
+});
+
+export async function updateProjectAction(input: {
+  projectId: string;
+  name: string;
+  description: string | null;
+  startDate: string | null;
+  endDate: string | null;
+  status: "active" | "archived";
+}): Promise<FormState> {
+  const session = await auth();
+  if (!session?.user) return { error: "请先登录" };
+
+  const parsed = updateProjectSchema.safeParse(input);
+  if (!parsed.success) return { error: parsed.error.issues[0].message };
+  const { startDate, endDate } = parsed.data;
+  if (startDate && endDate && startDate > endDate) {
+    return { error: "开始日期不能晚于结束日期" };
+  }
+
+  try {
+    await updateProject(session.user.id, parsed.data.projectId, {
+      name: parsed.data.name,
+      description: parsed.data.description || null,
+      startDate: parsed.data.startDate,
+      endDate: parsed.data.endDate,
+      status: parsed.data.status,
+    });
+  } catch (e) {
+    if (e instanceof ForbiddenError) return { error: "仅团队管理员可编辑项目" };
+    if (e instanceof AppError) return { error: e.message };
+    throw e;
+  }
+  revalidatePath(`/projects/${parsed.data.projectId}`);
+  revalidatePath("/projects");
   return null;
 }
 

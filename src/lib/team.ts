@@ -69,6 +69,18 @@ export async function listTeamMembers(teamId: string) {
     .where(eq(teamMembers.teamId, teamId));
 }
 
+// 团队改名：仅 admin。删除团队不做——会级联删除项目与任务，误触代价过高。
+export async function renameTeam(actorId: string, teamId: string, name: string) {
+  await requireTeamRole(actorId, teamId, ["admin"]);
+  const [updated] = await db
+    .update(teams)
+    .set({ name })
+    .where(eq(teams.id, teamId))
+    .returning();
+  if (!updated) throw new AppError("团队不存在");
+  return updated;
+}
+
 export async function updateMemberRole(
   actorId: string,
   teamId: string,

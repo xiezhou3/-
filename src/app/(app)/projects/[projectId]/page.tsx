@@ -21,6 +21,7 @@ import { listProjectFiles } from "@/lib/project-file-service";
 import { listProjectComments } from "@/lib/project-comment";
 import { ProjectComments } from "./comments/project-comments";
 import { GithubRepositoryPanel } from "./github-repository-panel";
+import { ProjectEditDialog } from "./project-edit-dialog";
 import { getProjectRepository } from "@/lib/project-repository-service";
 import { getAiSettingsView } from "@/lib/agent/ai-settings";
 
@@ -120,6 +121,17 @@ export default async function ProjectPage({
             </div>
           </div>
           <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
+            <ProjectEditDialog
+              projectId={projectId}
+              canEdit={isAdmin}
+              project={{
+                name: project.name,
+                description: project.description,
+                startDate: project.startDate,
+                endDate: project.endDate,
+                status: project.status,
+              }}
+            />
             <Link
               href={`/projects/${projectId}/timeline`}
               className="ac-btn-ghost whitespace-nowrap"
