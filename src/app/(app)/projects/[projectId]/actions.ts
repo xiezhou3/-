@@ -14,19 +14,30 @@ import { submitTaskForReview } from "@/lib/task-review";
 import { setTaskLabels } from "@/lib/label";
 import { createMilestone } from "@/lib/project";
 import { AppError, ForbiddenError } from "@/lib/errors";
+import { WORK_ITEM_TYPES } from "@/lib/work-item";
+import { batchUpdateTasks } from "@/lib/workflow";
 
 export type FormState = { error: string } | null;
 // 更新任务专用：成功回 { ok: true }，供编辑弹窗据以自闭
 export type UpdateTaskState = { error: string } | { ok: true } | null;
 export type CreatedTask = {
   id: string;
+  taskNumber: number | null;
   title: string;
   description: string | null;
   completionNote: string | null;
   status: "todo" | "doing" | "done";
+  statusId: string | null;
   priority: "low" | "medium" | "high";
+  workItemType: "epic" | "story" | "task" | "bug";
+  bugSeverity: "blocker" | "critical" | "major" | "minor" | null;
+  parentWorkItemId: string | null;
   startDate: string | null;
   dueDate: string | null;
+  estimate: number | null;
+  estimatedHours: number | null;
+  sprintId: string | null;
+  releaseId: string | null;
   assigneeId: string | null;
   assigneeIds: string[];
   milestoneId: string | null;
@@ -54,14 +65,25 @@ export type TaskAttachmentState =
 const createTaskSchema = z.object({
   projectId: z.uuid(),
   title: z.string().trim().min(1, "请填写任务标题"),
+  workItemType: z.enum(WORK_ITEM_TYPES).optional(),
+  bugSeverity: z.enum(["blocker", "critical", "major", "minor"]).optional(),
+  parentWorkItemId: z.uuid().optional(),
   description: z.string().trim().optional(),
   assigneeId: z.uuid().optional(),
   assigneeIds: z.array(z.uuid()).optional(),
   startDate: z.iso.date("日期格式不正确").optional(),
   dueDate: z.iso.date("日期格式不正确").optional(),
   milestoneId: z.uuid().optional(),
+  sprintId: z.uuid().optional(),
+  releaseId: z.uuid().optional(),
   priority: z.enum(["low", "medium", "high"]).optional(),
+  estimate: z.coerce.number().int("故事点必须是整数").min(0, "故事点不能为负数").optional(),
+  estimatedHours: z.coerce
+    .number()
+    .min(0, "预估工时不能为负数")
+    .optional(),
   status: z.enum(["todo", "doing", "done"]).optional(),
+  statusId: z.uuid().optional(),
 });
 
 export async function createTaskAction(
@@ -74,13 +96,27 @@ export async function createTaskAction(
   const assigneeIds = formData.getAll("assigneeIds").map(String).filter(Boolean);
   const parsed = createTaskSchema.safeParse({
     ...raw,
+    workItemType: raw.workItemType || undefined,
+    bugSeverity: raw.bugSeverity || undefined,
+    parentWorkItemId: raw.parentWorkItemId || undefined,
     assigneeId: raw.assigneeId || undefined,
     assigneeIds: assigneeIds.length > 0 ? assigneeIds : undefined,
     startDate: raw.startDate || undefined,
     dueDate: raw.dueDate || undefined,
     milestoneId: raw.milestoneId || undefined,
+    sprintId: raw.sprintId || undefined,
+    releaseId: raw.releaseId || undefined,
     priority: raw.priority || undefined,
+    estimate:
+      raw.estimate === "" || raw.estimate === undefined
+        ? undefined
+        : raw.estimate,
+    estimatedHours:
+      raw.estimatedHours === "" || raw.estimatedHours === undefined
+        ? undefined
+        : raw.estimatedHours,
     status: raw.status || undefined,
+    statusId: raw.statusId || undefined,
   });
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0].message };
@@ -94,13 +130,22 @@ export async function createTaskAction(
       ok: true,
       task: {
         id: task.id,
+        taskNumber: task.taskNumber,
         title: task.title,
         description: task.description,
         completionNote: task.completionNote,
         status: task.status,
+        statusId: task.statusId,
         priority: task.priority,
+        workItemType: task.workItemType,
+        bugSeverity: task.bugSeverity,
+        parentWorkItemId: task.parentWorkItemId,
         startDate: task.startDate,
         dueDate: task.dueDate,
+        estimate: task.estimate,
+        estimatedHours: task.estimatedHours,
+        sprintId: task.sprintId,
+        releaseId: task.releaseId,
         assigneeId: task.assigneeId,
         assigneeIds:
           assigneeIds.length > 0
@@ -222,13 +267,24 @@ const updateTaskSchema = z.object({
   taskId: z.uuid(),
   projectId: z.uuid(),
   title: z.string().trim().min(1, "标题不可为空"),
+  workItemType: z.enum(WORK_ITEM_TYPES),
+  bugSeverity: z.enum(["blocker", "critical", "major", "minor"]).optional(),
+  parentWorkItemId: z.uuid().optional(),
   description: z.string().trim().optional(),
   assigneeId: z.uuid().optional(),
   assigneeIds: z.array(z.uuid()).optional(),
   milestoneId: z.uuid().optional(),
+  sprintId: z.uuid().optional(),
+  releaseId: z.uuid().optional(),
   startDate: z.iso.date("日期格式不正确").optional(),
   dueDate: z.iso.date("日期格式不正确").optional(),
   priority: z.enum(["low", "medium", "high"]),
+  estimate: z.coerce.number().int("故事点必须是整数").min(0, "故事点不能为负数").optional(),
+  estimatedHours: z.coerce
+    .number()
+    .min(0, "预估工时不能为负数")
+    .optional(),
+  statusId: z.uuid().optional(),
   completionNote: z.string().trim().optional(),
 });
 
@@ -243,11 +299,24 @@ export async function updateTaskAction(
   const assigneeIds = formData.getAll("assigneeIds").map(String).filter(Boolean);
   const parsed = updateTaskSchema.safeParse({
     ...raw,
+    parentWorkItemId: raw.parentWorkItemId || undefined,
+    bugSeverity: raw.bugSeverity || undefined,
     assigneeId: raw.assigneeId || undefined,
     assigneeIds,
     milestoneId: raw.milestoneId || undefined,
+    sprintId: raw.sprintId || undefined,
+    releaseId: raw.releaseId || undefined,
     startDate: raw.startDate || undefined,
     dueDate: raw.dueDate || undefined,
+    estimate:
+      raw.estimate === "" || raw.estimate === undefined
+        ? undefined
+        : raw.estimate,
+    estimatedHours:
+      raw.estimatedHours === "" || raw.estimatedHours === undefined
+        ? undefined
+        : raw.estimatedHours,
+    statusId: raw.statusId || undefined,
   });
   if (!parsed.success) return { error: parsed.error.issues[0].message };
 
@@ -263,13 +332,21 @@ export async function updateTaskAction(
   try {
     await updateTask(session.user.id, taskId, {
       title: patch.title,
+      workItemType: patch.workItemType,
+      bugSeverity: patch.bugSeverity ?? null,
+      parentWorkItemId: patch.parentWorkItemId ?? null,
       description: patch.description ?? null,
       assigneeId: patch.assigneeId ?? null,
       assigneeIds: patch.assigneeIds,
       milestoneId: patch.milestoneId ?? null,
+      sprintId: patch.sprintId ?? null,
+      releaseId: patch.releaseId ?? null,
       startDate: patch.startDate ?? null,
       dueDate: patch.dueDate ?? null,
       priority: patch.priority,
+      estimate: patch.estimate ?? null,
+      estimatedHours: patch.estimatedHours ?? null,
+      statusId: patch.statusId,
       completionNote: patch.completionNote ?? null,
     });
     await setTaskSuccessors(session.user.id, taskId, successorIds);
@@ -307,4 +384,42 @@ export async function deleteTaskAction(
   }
   revalidatePath(`/projects/${parsed.data.projectId}`);
   return null;
+}
+
+const batchUpdateSchema = z.object({
+  projectId: z.uuid(),
+  taskIds: z.array(z.uuid()).min(1, "请选择任务"),
+  statusId: z.uuid().optional(),
+  priority: z.enum(["low", "medium", "high"]).optional(),
+  assigneeIds: z.array(z.uuid()).optional(),
+});
+
+export async function batchUpdateTasksAction(input: {
+  projectId: string;
+  taskIds: string[];
+  statusId?: string;
+  priority?: "low" | "medium" | "high";
+  assigneeIds?: string[];
+}): Promise<UpdateTaskState> {
+  const session = await auth();
+  if (!session?.user) return { error: "请先登录" };
+  const parsed = batchUpdateSchema.safeParse(input);
+  if (!parsed.success) return { error: parsed.error.issues[0].message };
+  try {
+    await batchUpdateTasks(
+      session.user.id,
+      parsed.data.projectId,
+      parsed.data.taskIds,
+      {
+        statusId: parsed.data.statusId,
+        priority: parsed.data.priority,
+        assigneeIds: parsed.data.assigneeIds,
+      },
+    );
+  } catch (error) {
+    if (error instanceof AppError) return { error: error.message };
+    throw error;
+  }
+  revalidatePath(`/projects/${parsed.data.projectId}`);
+  return { ok: true };
 }

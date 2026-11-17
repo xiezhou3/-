@@ -29,12 +29,18 @@ export async function GET(req: Request, ctx: Ctx) {
 
 const createSchema = z.object({
   title: z.string().min(1),
+  workItemType: z.enum(["task", "bug"]).optional(),
+  bugSeverity: z.enum(["blocker", "critical", "major", "minor"]).optional(),
   description: z.string().optional(),
   assigneeId: z.uuid().optional(),
   startDate: z.string().optional(),
   dueDate: z.string().optional(),
   milestoneId: z.uuid().optional(),
+  sprintId: z.uuid().optional(),
+  releaseId: z.uuid().optional(),
   priority: z.enum(["low", "medium", "high"]).optional(),
+  estimate: z.number().int().nonnegative().optional(),
+  estimatedHours: z.number().nonnegative().optional(),
 });
 
 // CC 写入：在该任务下建子任务。所属项目由父任务推得，调用方无须传 projectId。

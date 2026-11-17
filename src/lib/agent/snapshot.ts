@@ -3,6 +3,7 @@ import { listProjectTasks } from "@/lib/task";
 import { listTeamMembers } from "@/lib/team";
 import { ForbiddenError } from "@/lib/errors";
 import type { TaskStatus } from "@/db/schema";
+import { WORK_ITEM_TYPE_LABEL } from "@/lib/work-item";
 
 // 上限放宽至 4000：快照须随行携带 uuid（成员/里程碑/任务各 36 字符）供写工具填参，
 // 旧的 2000 字符下十余个任务即触发降级，模型只得反复调读工具，反更耗 token。
@@ -62,7 +63,7 @@ export async function buildProjectSnapshot(actorId: string, projectId: string): 
         shownTasks
           .map(
             (t) =>
-              `- [${t.status}] ${t.title}｜${t.assigneeName ?? "未指派"}｜${t.dueDate ?? "无截止"}｜id=${t.id}`,
+              `- [${WORK_ITEM_TYPE_LABEL[t.workItemType]}][${t.status}] ${t.title}｜${t.assigneeName ?? "未指派"}｜${t.dueDate ?? "无截止"}｜id=${t.id}`,
           )
           .join("\n") +
         (tasks.length > shownTasks.length

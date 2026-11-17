@@ -8,7 +8,15 @@ import {
   useTransition,
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ExternalLink, Link2, Send, Upload, X } from "lucide-react";
+import {
+  AtSign,
+  ExternalLink,
+  Link2,
+  MessageSquare,
+  Send,
+  Upload,
+  X,
+} from "lucide-react";
 import {
   addTaskAttachmentAction,
   deleteTaskAction,
@@ -18,11 +26,26 @@ import {
   type UpdateTaskState,
 } from "./actions";
 import { LABEL_COLOR_CLASS } from "@/lib/board-columns";
+import {
+  WORK_ITEM_TYPE_BADGE,
+  WORK_ITEM_TYPE_DESCRIPTION,
+  WORK_ITEM_TYPE_LABEL,
+  WORK_ITEM_TYPES,
+  type WorkItemTypeValue,
+} from "@/lib/work-item";
 import type { ProjectFileKind } from "@/lib/project-files";
-import type { BoardTask } from "./board";
+import type {
+  BoardTask,
+  ReleaseOption,
+  SprintOption,
+  WorkflowStatusOption,
+} from "./board";
+import { TaskCollaborationPanel } from "./task-collaboration-panel";
+import { TaskWorkLogPanel } from "./task-work-log-panel";
+import { TaskDevelopmentPanel } from "./task-development-panel";
+import type { WorkItemOption } from "./board";
 
 export type Option = { id: string; name: string };
-type TaskOption = { id: string; title: string };
 
 const PRIORITY_BADGE: Record<string, string> = {
   high: "bg-high-soft text-high",
@@ -30,26 +53,56 @@ const PRIORITY_BADGE: Record<string, string> = {
   low: "bg-low-soft text-low",
 };
 
+const BUG_SEVERITY_LABEL = {
+  blocker: "阻断",
+  critical: "严重",
+  major: "一般",
+  minor: "轻微",
+} as const;
+
+const BUG_SEVERITY_TONE = {
+  blocker: "bg-high text-white",
+  critical: "bg-high-soft text-high",
+  major: "bg-medium-soft text-medium",
+  minor: "bg-low-soft text-low",
+} as const;
+
 export function TaskCard({
   task,
   projectId,
   canEdit,
   canSubmit,
+  currentUserId,
+  isAdmin,
   members,
   milestones,
   allTasks,
   allLabels,
   dependencies,
+  sprints,
+  releases,
+  workflowStatuses,
+  transitions,
+  selected,
+  onToggleSelected,
 }: {
   task: BoardTask;
   projectId: string;
   canEdit: boolean;
   canSubmit: boolean;
+  currentUserId: string;
+  isAdmin: boolean;
   members: Option[];
   milestones: Option[];
-  allTasks: TaskOption[];
+  allTasks: WorkItemOption[];
   allLabels: Option[];
   dependencies: { predecessorId: string; successorId: string }[];
+  sprints: SprintOption[];
+  releases: ReleaseOption[];
+  workflowStatuses: WorkflowStatusOption[];
+  transitions: { fromStatusId: string; toStatusId: string }[];
+  selected: boolean;
+  onToggleSelected: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [addingLink, setAddingLink] = useState(false);
@@ -58,7 +111,7 @@ export function TaskCard({
   const [submitting, startSubmit] = useTransition();
   const router = useRouter();
   const searchParams = useSearchParams();
-  // 深链 /projects/[id]?task=<taskId>：命中本卡片则打开详情弹窗（仅管理员有 EditModal）。
+  // 深链 /projects/[id]?task=<taskId>：命中本卡片则打开详情弹窗（有任务写权限时）。
   // 于渲染期调整而非 useEffect：避免多渲染一轮，且用户手动关闭后不会被 effect 重开。
   const deepLinked = canEdit && searchParams.get("task") === task.id;
   const [prevDeepLinked, setPrevDeepLinked] = useState(false);
@@ -70,16 +123,38 @@ export function TaskCard({
     .filter((d) => d.predecessorId === task.id)
     .map((d) => allTasks.find((t) => t.id === d.successorId)?.title)
     .filter((title): title is string => Boolean(title));
+  const sprintName =
+    sprints.find((sprint) => sprint.id === task.sprintId)?.name ?? null;
+  const releaseName =
+    releases.find((release) => release.id === task.releaseId)?.name ?? null;
+  const parentTitle =
+    allTasks.find((item) => item.id === task.parentWorkItemId)?.title ?? null;
 
   return (
     <div
       data-task-id={task.id}
       className="ac-card min-h-28 p-3 text-sm transition hover:shadow-md"
     >
-      <TaskCardContent
-        task={{ ...task, attachments }}
-        successorTitles={successorTitles}
-      />
+      <div className="flex items-start gap-2">
+        {canEdit && (
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={onToggleSelected}
+            className="mt-1 shrink-0"
+            aria-label={`选择 ${task.title}`}
+          />
+        )}
+        <div className="min-w-0 flex-1">
+          <TaskCardContent
+            task={{ ...task, attachments }}
+            successorTitles={successorTitles}
+            sprintName={sprintName}
+            releaseName={releaseName}
+            parentTitle={parentTitle}
+          />
+        </div>
+      </div>
 
       <div className="mt-2 flex flex-wrap items-center gap-3 text-xs">
         {canEdit && (
@@ -150,6 +225,12 @@ export function TaskCard({
           allTasks={allTasks}
           allLabels={allLabels}
           dependencies={dependencies}
+          sprints={sprints}
+          releases={releases}
+          workflowStatuses={workflowStatuses}
+          transitions={transitions}
+          currentUserId={currentUserId}
+          isAdmin={isAdmin}
           onClose={() => setEditing(false)}
         />
       )}
@@ -160,14 +241,33 @@ export function TaskCard({
 export function TaskCardContent({
   task,
   successorTitles,
+  sprintName,
+  releaseName,
+  parentTitle,
 }: {
   task: BoardTask;
   successorTitles: string[];
+  sprintName?: string | null;
+  releaseName?: string | null;
+  parentTitle?: string | null;
 }) {
   return (
     <div>
       <p className="font-medium text-ink">{task.title}</p>
       <p className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs text-ink-soft">
+        {task.taskNumber !== null && (
+          <span className="text-[11px] font-semibold tabular-nums text-ink-faint">
+            #{task.taskNumber}
+          </span>
+        )}
+        <span className={`ac-badge ${WORK_ITEM_TYPE_BADGE[task.workItemType]}`}>
+          {WORK_ITEM_TYPE_LABEL[task.workItemType]}
+        </span>
+        {task.workItemType === "bug" && task.bugSeverity && (
+          <span className={`ac-badge ${BUG_SEVERITY_TONE[task.bugSeverity]}`}>
+            {BUG_SEVERITY_LABEL[task.bugSeverity]}
+          </span>
+        )}
         <span>
           {task.assignees.length > 0
             ? task.assignees.map((assignee) => assignee.name).join("、")
@@ -179,7 +279,33 @@ export function TaskCardContent({
         <span className={`ac-badge ${PRIORITY_BADGE[task.priority] ?? "bg-low-soft text-low"}`}>
           {task.priority}
         </span>
+        {task.estimate !== null && (
+          <span className="ac-badge bg-primary-soft text-primary">
+            {task.estimate} SP
+          </span>
+        )}
+        {task.estimatedHours !== null && (
+          <span className="ac-badge bg-medium-soft text-medium">
+            {task.estimatedHours}h 预估
+          </span>
+        )}
+        {task.actualHours > 0 && (
+          <span className="ac-badge bg-done/12 text-done">
+            {task.actualHours}h 实际
+          </span>
+        )}
+        {sprintName && (
+          <span className="ac-badge bg-sunken text-ink-soft">{sprintName}</span>
+        )}
+        {releaseName && (
+          <span className="ac-badge bg-accent-soft text-accent">
+            {releaseName}
+          </span>
+        )}
       </p>
+      {parentTitle && (
+        <p className="mt-1 text-xs text-ink-faint">上级：{parentTitle}</p>
+      )}
       {task.attachments.length > 0 && (
         <p className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
           {task.attachments.slice(0, 3).map((attachment) => (
@@ -211,6 +337,22 @@ export function TaskCardContent({
           ))}
           {task.labels.length > 3 && (
             <span className="text-xs text-ink-faint">+{task.labels.length - 3}</span>
+          )}
+        </p>
+      )}
+      {(task.commentCount > 0 || task.mentioned) && (
+        <p className="mt-1.5 flex items-center gap-2 text-xs">
+          {task.commentCount > 0 && (
+            <span className="inline-flex items-center gap-1 text-ink-faint">
+              <MessageSquare className="h-3.5 w-3.5" aria-hidden />
+              {task.commentCount}
+            </span>
+          )}
+          {task.mentioned && (
+            <span className="ac-badge bg-accent-soft text-accent">
+              <AtSign className="h-3 w-3" aria-hidden />
+              提及我
+            </span>
           )}
         </p>
       )}
@@ -528,15 +670,27 @@ function EditModal({
   allTasks,
   allLabels,
   dependencies,
+  sprints,
+  releases,
+  workflowStatuses,
+  transitions,
+  currentUserId,
+  isAdmin,
   onClose,
 }: {
   task: BoardTask;
   projectId: string;
   members: Option[];
   milestones: Option[];
-  allTasks: TaskOption[];
+  allTasks: WorkItemOption[];
   allLabels: Option[];
   dependencies: { predecessorId: string; successorId: string }[];
+  sprints: SprintOption[];
+  releases: ReleaseOption[];
+  workflowStatuses: WorkflowStatusOption[];
+  transitions: { fromStatusId: string; toStatusId: string }[];
+  currentUserId: string;
+  isAdmin: boolean;
   onClose: () => void;
 }) {
   const [updateState, updateFormAction, updating] = useActionState<UpdateTaskState, FormData>(
@@ -546,6 +700,9 @@ function EditModal({
   const [deleteState, deleteFormAction, deleting] = useActionState<FormState, FormData>(
     deleteTaskAction,
     null,
+  );
+  const [workItemType, setWorkItemType] = useState<WorkItemTypeValue>(
+    task.workItemType,
   );
 
   // 保存成功（action 回 { ok: true }）即关窗
@@ -562,6 +719,28 @@ function EditModal({
 
   const updateError = updateState && "error" in updateState ? updateState.error : null;
   const deleteError = deleteState && "error" in deleteState ? deleteState.error : null;
+  const currentSprint = sprints.find((sprint) => sprint.id === task.sprintId);
+  const sprintLocked = currentSprint?.status === "closed";
+  const parentType =
+    workItemType === "story"
+      ? "epic"
+      : workItemType === "task" || workItemType === "bug"
+        ? "story"
+        : null;
+  const parentOptions = parentType
+    ? allTasks.filter(
+        (item) => item.workItemType === parentType && item.id !== task.id,
+      )
+    : [];
+  const allowedStatusIds = new Set([
+    task.statusId,
+    ...transitions
+      .filter((transition) => transition.fromStatusId === task.statusId)
+      .map((transition) => transition.toStatusId),
+  ]);
+  const statusOptions = workflowStatuses.filter(
+    (status) => allowedStatusIds.has(status.id) || status.id === task.statusId,
+  );
 
   return (
     <div
@@ -595,6 +774,60 @@ function EditModal({
 
           <Field label="标题">
             <input name="title" defaultValue={task.title} className="ac-field text-sm" />
+          </Field>
+          <div className="grid grid-cols-2 gap-2.5">
+            <Field label="工作项类型">
+              <select
+                name="workItemType"
+                value={workItemType}
+                onChange={(event) =>
+                  setWorkItemType(event.target.value as WorkItemTypeValue)
+                }
+                className="ac-field text-sm"
+              >
+                {WORK_ITEM_TYPES.map((type) => (
+                  <option
+                    key={type}
+                    value={type}
+                    title={WORK_ITEM_TYPE_DESCRIPTION[type]}
+                  >
+                    {WORK_ITEM_TYPE_LABEL[type]}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="上级工作项">
+              {workItemType === "epic" ? (
+                <div className="ac-field text-sm text-ink-faint">Epic 为顶层工作项</div>
+              ) : (
+                <select
+                  key={workItemType}
+                  name="parentWorkItemId"
+                  defaultValue={task.parentWorkItemId ?? ""}
+                  className="ac-field text-sm"
+                >
+                  <option value="">无上级</option>
+                  {parentOptions.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {WORK_ITEM_TYPE_LABEL[item.workItemType]} · {item.title}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </Field>
+          </div>
+          <Field label="状态">
+            <select
+              name="statusId"
+              defaultValue={task.statusId ?? ""}
+              className="ac-field text-sm"
+            >
+              {statusOptions.map((status) => (
+                <option key={status.id} value={status.id}>
+                  {status.name}
+                </option>
+              ))}
+            </select>
           </Field>
           <Field label="描述">
             <textarea
@@ -646,6 +879,90 @@ function EditModal({
                 <option value="low">低</option>
                 <option value="medium">中</option>
                 <option value="high">高</option>
+              </select>
+            </Field>
+            {workItemType === "bug" && (
+              <Field label="缺陷严重程度">
+                <select
+                  name="bugSeverity"
+                  defaultValue={task.bugSeverity ?? "major"}
+                  className="ac-field text-sm"
+                >
+                  <option value="blocker">阻断</option>
+                  <option value="critical">严重</option>
+                  <option value="major">一般</option>
+                  <option value="minor">轻微</option>
+                </select>
+              </Field>
+            )}
+            <Field label="故事点">
+              <input
+                name="estimate"
+                type="number"
+                min={0}
+                step={1}
+                defaultValue={task.estimate ?? ""}
+                placeholder="未估算"
+                className="ac-field text-sm"
+              />
+            </Field>
+            <Field label="预估工时（小时）">
+              <input
+                name="estimatedHours"
+                type="number"
+                min={0}
+                step={0.5}
+                defaultValue={task.estimatedHours ?? ""}
+                placeholder="未估算"
+                className="ac-field text-sm"
+              />
+            </Field>
+            <Field label="迭代">
+              {sprintLocked ? (
+                <>
+                  <input type="hidden" name="sprintId" value={task.sprintId ?? ""} />
+                  <select
+                    value={task.sprintId ?? ""}
+                    disabled
+                    className="ac-field text-sm"
+                    onChange={() => undefined}
+                  >
+                    <option value={task.sprintId ?? ""}>
+                      {currentSprint?.name}（已关闭）
+                    </option>
+                  </select>
+                </>
+              ) : (
+                <select
+                  name="sprintId"
+                  defaultValue={task.sprintId ?? ""}
+                  className="ac-field text-sm"
+                >
+                  <option value="">Backlog</option>
+                  {sprints
+                    .filter((sprint) => sprint.status !== "closed")
+                    .map((sprint) => (
+                      <option key={sprint.id} value={sprint.id}>
+                        {sprint.name}
+                      </option>
+                    ))}
+                </select>
+              )}
+            </Field>
+            <Field label="版本 / Release">
+              <select
+                name="releaseId"
+                defaultValue={task.releaseId ?? ""}
+                className="ac-field text-sm"
+              >
+                <option value="">未分配版本</option>
+                {releases
+                  .filter((release) => release.status !== "cancelled")
+                  .map((release) => (
+                    <option key={release.id} value={release.id}>
+                      {release.name}
+                    </option>
+                  ))}
               </select>
             </Field>
             <Field label="起始日">
@@ -705,6 +1022,24 @@ function EditModal({
             </button>
           </div>
         </form>
+
+        <TaskDevelopmentPanel taskId={task.id} />
+
+        <TaskWorkLogPanel
+          taskId={task.id}
+          projectId={projectId}
+          estimatedHours={task.estimatedHours}
+          currentUserId={currentUserId}
+          isAdmin={isAdmin}
+        />
+
+        <TaskCollaborationPanel
+          taskId={task.id}
+          projectId={projectId}
+          members={members}
+          currentUserId={currentUserId}
+          isAdmin={isAdmin}
+        />
 
         <form
           action={deleteFormAction}

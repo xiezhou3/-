@@ -272,6 +272,41 @@ describe("POST /api/agent/projects/:projectId/tasks", () => {
     expect((await listed.json()).tasks).toHaveLength(1);
   });
 
+  it("可创建工作项类型与父级，并按类型筛选", async () => {
+    const { owner, project, token } = await scene();
+    const epic = await createTask(owner.id, project.id, {
+      title: "Epic",
+      workItemType: "epic",
+    });
+    const created = await newTask(
+      send(
+        "POST",
+        {
+          title: "Story",
+          workItemType: "story",
+          parentWorkItemId: epic.id,
+        },
+        token,
+      ),
+      ctx({ projectId: project.id }),
+    );
+    expect(created.status).toBe(200);
+    const body = await created.json();
+    expect(body.workItemType).toBe("story");
+    expect(body.parentWorkItemId).toBe(epic.id);
+
+    const listed = await listTasks(
+      get(
+        `/api/agent/projects/${project.id}/tasks?workItemType=story`,
+        token,
+      ),
+      ctx({ projectId: project.id }),
+    );
+    const tasks = (await listed.json()).tasks;
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0].workItemType).toBe("story");
+  });
+
   it("非成员 → 403", async () => {
     const { project } = await scene();
     const { token } = await stranger();

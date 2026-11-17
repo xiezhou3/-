@@ -12,6 +12,11 @@ import { AppError, ForbiddenError } from "./errors";
 import { getProjectForUser } from "./project";
 import { getTaskAssigneeIds, getTaskDetail } from "./task";
 import { notifyTaskCompleted } from "./notify";
+import {
+  ensureProjectWorkflow,
+  getWorkflowStatusByCategory,
+} from "./workflow";
+import { triggerTaskStatusAutomation } from "./automation-trigger";
 
 export type PendingTaskReview = {
   id: string;
@@ -143,7 +148,13 @@ export async function submitTaskForReview(actorId: string, taskId: string) {
     .where(eq(taskAttachments.taskId, taskId));
   if (!attachmentCount?.count) throw new AppError("请先添加至少一个文件链接");
 
-  return db.transaction(async (tx) => {
+  const updated = await db.transaction(async (tx) => {
+    await ensureProjectWorkflow(task.projectId);
+    const inProgress = await getWorkflowStatusByCategory(
+      tx,
+      task.projectId,
+      "doing",
+    );
     const now = sql`now()`;
     await tx
       .insert(taskReviewRequests)
@@ -168,11 +179,22 @@ export async function submitTaskForReview(actorId: string, taskId: string) {
       });
     const [updated] = await tx
       .update(tasks)
-      .set({ status: "doing", updatedAt: now })
+      .set({ status: "doing", statusId: inProgress.id, updatedAt: now })
       .where(eq(tasks.id, taskId))
       .returning();
     return updated;
   });
+  await triggerTaskStatusAutomation({
+    actorId,
+    projectId: task.projectId,
+    taskId: task.id,
+    taskTitle: task.title,
+    workItemType: task.workItemType,
+    priority: task.priority,
+    fromStatus: "todo",
+    toStatus: "doing",
+  });
+  return updated;
 }
 
 export async function approveTaskReview(actorId: string, reviewId: string) {
@@ -180,6 +202,12 @@ export async function approveTaskReview(actorId: string, reviewId: string) {
   if (review.status !== "pending") throw new AppError("该审核已处理");
 
   const updatedTask = await db.transaction(async (tx) => {
+    await ensureProjectWorkflow(review.projectId);
+    const done = await getWorkflowStatusByCategory(
+      tx,
+      review.projectId,
+      "done",
+    );
     const now = sql`now()`;
     await tx
       .update(taskReviewRequests)
@@ -192,13 +220,23 @@ export async function approveTaskReview(actorId: string, reviewId: string) {
       .where(eq(taskReviewRequests.id, reviewId));
     const [updated] = await tx
       .update(tasks)
-      .set({ status: "done", updatedAt: now })
+      .set({ status: "done", statusId: done.id, updatedAt: now })
       .where(eq(tasks.id, review.taskId))
       .returning();
     return updated;
   });
 
   void notifyTaskCompleted(updatedTask, actorId);
+  await triggerTaskStatusAutomation({
+    actorId,
+    projectId: updatedTask.projectId,
+    taskId: updatedTask.id,
+    taskTitle: updatedTask.title,
+    workItemType: updatedTask.workItemType,
+    priority: updatedTask.priority,
+    fromStatus: "doing",
+    toStatus: "done",
+  });
   return updatedTask;
 }
 
@@ -207,11 +245,17 @@ export async function rejectTaskReview(
   reviewId: string,
   note: string,
 ) {
-  const { review } = await getTaskReviewForAdmin(actorId, reviewId);
+  const { review, task } = await getTaskReviewForAdmin(actorId, reviewId);
   if (review.status !== "pending") throw new AppError("该审核已处理");
   const reviewNote = note.trim().slice(0, 500);
 
   await db.transaction(async (tx) => {
+    await ensureProjectWorkflow(review.projectId);
+    const todo = await getWorkflowStatusByCategory(
+      tx,
+      review.projectId,
+      "todo",
+    );
     const now = sql`now()`;
     await tx
       .update(taskReviewRequests)
@@ -225,7 +269,17 @@ export async function rejectTaskReview(
       .where(eq(taskReviewRequests.id, reviewId));
     await tx
       .update(tasks)
-      .set({ status: "todo", updatedAt: now })
+      .set({ status: "todo", statusId: todo.id, updatedAt: now })
       .where(eq(tasks.id, review.taskId));
+  });
+  await triggerTaskStatusAutomation({
+    actorId,
+    projectId: review.projectId,
+    taskId: review.taskId,
+    taskTitle: task.title,
+    workItemType: task.workItemType,
+    priority: task.priority,
+    fromStatus: "doing",
+    toStatus: "todo",
   });
 }

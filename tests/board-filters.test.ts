@@ -4,6 +4,8 @@ import {
   parseFilters,
   serializeFilters,
   applyFilters,
+  applySprintFilter,
+  resolveSprintFilter,
   type FilterableTask,
 } from "@/lib/board-filters";
 import {
@@ -21,7 +23,9 @@ function task(over: Partial<FilterableTask> = {}): FilterableTask {
   return {
     assigneeId,
     assigneeIds: over.assigneeIds ?? (assigneeId ? [assigneeId] : []),
+    statusId: over.statusId ?? null,
     priority: "medium",
+    workItemType: "task",
     milestoneId: null,
     dueDate: null,
     status: "todo",
@@ -62,6 +66,12 @@ describe("parseFilters", () => {
     const f = parseFilters(new URLSearchParams(`task=${A}`));
     expect(f).toEqual(EMPTY_FILTERS);
   });
+
+  it("解析 Sprint 特殊值与 uuid", () => {
+    expect(parseFilters(new URLSearchParams("sprint=backlog")).sprint).toBe("backlog");
+    expect(parseFilters(new URLSearchParams(`sprint=${A}`)).sprint).toBe(A);
+    expect(parseFilters(new URLSearchParams("sprint=invalid")).sprint).toBe("default");
+  });
 });
 
 describe("serializeFilters", () => {
@@ -82,6 +92,35 @@ describe("serializeFilters", () => {
 
   it("默认分组不写入 query", () => {
     expect(serializeFilters({ ...EMPTY_FILTERS, group: "status" })).toBe("");
+  });
+
+  it("Sprint 筛选可往返", () => {
+    const f = { ...EMPTY_FILTERS, sprint: "backlog" };
+    expect(parseFilters(new URLSearchParams(serializeFilters(f)))).toEqual(f);
+  });
+
+  it("工作项类型筛选可往返", () => {
+    const f = { ...EMPTY_FILTERS, workItemType: ["story", "task"] };
+    expect(parseFilters(new URLSearchParams(serializeFilters(f)))).toEqual(f);
+  });
+});
+
+describe("Sprint 筛选", () => {
+  const rows = [
+    { sprintId: A },
+    { sprintId: B },
+    { sprintId: null },
+  ];
+
+  it("默认解析为当前迭代，没有 active 时退化为全部", () => {
+    expect(resolveSprintFilter("default", A)).toBe(A);
+    expect(resolveSprintFilter("default", null)).toBe("all");
+  });
+
+  it("支持指定迭代、Backlog 与全部任务", () => {
+    expect(applySprintFilter(rows, "all")).toHaveLength(3);
+    expect(applySprintFilter(rows, "backlog")).toEqual([{ sprintId: null }]);
+    expect(applySprintFilter(rows, B)).toEqual([{ sprintId: B }]);
   });
 });
 
@@ -136,6 +175,21 @@ describe("applyFilters", () => {
     const f = { ...EMPTY_FILTERS, assignee: [A], priority: ["high"] };
     expect(applyFilters(list, f, today)).toHaveLength(1);
   });
+
+  it("按工作项类型筛选", () => {
+    const list = [
+      task({ workItemType: "epic" }),
+      task({ workItemType: "story" }),
+      task({ workItemType: "bug" }),
+    ];
+    expect(
+      applyFilters(
+        list,
+        { ...EMPTY_FILTERS, workItemType: ["epic", "bug"] },
+        today,
+      ),
+    ).toHaveLength(2);
+  });
 });
 
 describe("deriveColumns", () => {
@@ -187,6 +241,18 @@ describe("deriveColumns", () => {
     expect(cols.map((c) => c.key)).toEqual([M, "none"]);
     expect(cols[1].patch).toEqual({});
     expect(cols[0].matches(task({ milestoneId: M }))).toBe(true);
+  });
+
+  it("按工作项类型分组", () => {
+    const cols = deriveColumns("type", ctx);
+    expect(cols.map((column) => column.key)).toEqual([
+      "epic",
+      "story",
+      "task",
+      "bug",
+    ]);
+    expect(cols[0].matches(task({ workItemType: "epic" }))).toBe(true);
+    expect(cols.some(supportsTaskCreation)).toBe(false);
   });
 
   it("成员为空时按指派人分组仍有未指派列", () => {

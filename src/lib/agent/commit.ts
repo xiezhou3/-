@@ -9,15 +9,19 @@ import {
 } from "@/lib/task";
 import { notifyTaskAssigned, notifyTaskCompleted } from "@/lib/notify";
 import { ForbiddenError } from "@/lib/errors";
+import { WORK_ITEM_TYPES } from "@/lib/work-item";
 import type { WriteToolName } from "./tools";
 
 const taskDraftSchema = z.object({
   title: z.string().min(1),
+  workItemType: z.enum(WORK_ITEM_TYPES).optional(),
+  parentWorkItemId: z.string().optional(),
   description: z.string().optional(),
   assigneeId: z.string().optional(),
   dueDate: z.string().optional(),
   milestoneId: z.string().optional(),
   priority: z.enum(["low", "medium", "high"]).optional(),
+  statusId: z.string().optional(),
 });
 
 const createProjectSchema = z.object({
@@ -31,7 +35,10 @@ const decomposeSchema = z.object({ tasks: z.array(taskDraftSchema).min(1) });
 
 const patchSchema = z.object({
   title: z.string().optional(),
+  workItemType: z.enum(WORK_ITEM_TYPES).optional(),
+  parentWorkItemId: z.string().nullable().optional(),
   status: z.enum(["todo", "doing", "done"]).optional(),
+  statusId: z.string().optional(),
   assigneeId: z.string().optional(),
   dueDate: z.string().optional(),
   milestoneId: z.string().optional(),

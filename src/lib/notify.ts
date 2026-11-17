@@ -6,6 +6,8 @@ import {
   buildAssignedCard,
   buildCompletedCard,
   buildDueReminderCard,
+  buildTaskCommentCard,
+  buildTaskStatusCard,
   type CardTask,
   type ReminderItem,
 } from "./feishu-card";
@@ -72,6 +74,56 @@ export async function notifyTaskCompleted(task: TaskRow, actorId: string): Promi
   const openId = await openIdOf(creatorId);
   if (!openId) return;
   await safeSend(openId, buildCompletedCard(await enrich(task)));
+}
+
+export async function notifyTaskComment(
+  task: TaskRow,
+  actorId: string,
+  comment: string,
+  recipientIds: string[],
+) {
+  const [actor] = await db
+    .select({ name: users.name })
+    .from(users)
+    .where(eq(users.id, actorId));
+  const cardTask = await enrich(task);
+  for (const userId of recipientIds) {
+    if (userId === actorId) continue;
+    const openId = await openIdOf(userId);
+    if (!openId) continue;
+    await safeSend(
+      openId,
+      buildTaskCommentCard(cardTask, actor?.name ?? "项目成员", comment),
+    );
+  }
+}
+
+export async function notifyTaskStatusChanged(
+  task: TaskRow,
+  actorId: string,
+  fromStatus: string,
+  toStatus: string,
+  recipientIds: string[],
+) {
+  const [actor] = await db
+    .select({ name: users.name })
+    .from(users)
+    .where(eq(users.id, actorId));
+  const cardTask = await enrich(task);
+  for (const userId of recipientIds) {
+    if (userId === actorId) continue;
+    const openId = await openIdOf(userId);
+    if (!openId) continue;
+    await safeSend(
+      openId,
+      buildTaskStatusCard(
+        cardTask,
+        actor?.name ?? "项目成员",
+        fromStatus,
+        toStatus,
+      ),
+    );
+  }
 }
 
 // 扫全库临期(明日到期)+逾期(已过期未 done)，按负责人聚合为一封卡片日报。返回发送人数与扫描任务数。

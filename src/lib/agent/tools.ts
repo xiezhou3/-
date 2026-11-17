@@ -3,6 +3,7 @@ import { z } from "zod";
 import { listMyProjects, listProjectMilestones } from "@/lib/project";
 import { listProjectTasks } from "@/lib/task";
 import type { TaskStatus } from "@/db/schema";
+import { WORK_ITEM_TYPES } from "@/lib/work-item";
 
 // 读工具纯函数：权限经底层 lib（listProjectMilestones/listProjectTasks 内部各调 getProjectForUser）
 export async function queryProgress(actorId: string, projectId: string) {
@@ -39,7 +40,10 @@ export async function listTasksFiltered(
   return list.map((t) => ({
     id: t.id,
     title: t.title,
+    workItemType: t.workItemType,
+    parentWorkItemId: t.parentWorkItemId,
     status: t.status,
+    statusId: t.statusId,
     priority: t.priority,
     dueDate: t.dueDate,
     assigneeName: t.assigneeName,
@@ -115,11 +119,14 @@ export function buildTools(actorId: string, projectId: string) {
         tasks: z.array(
           z.object({
             title: z.string(),
+            workItemType: z.enum(WORK_ITEM_TYPES).optional(),
+            parentWorkItemId: z.string().optional(),
             description: z.string().optional(),
             assigneeId: z.string().optional(),
             dueDate: z.string().optional(),
             milestoneId: z.string().optional(),
             priority: z.enum(["low", "medium", "high"]).optional(),
+            statusId: z.string().optional(),
           }),
         ),
       }),
@@ -133,11 +140,14 @@ export function buildTools(actorId: string, projectId: string) {
             taskId: z.string(),
             patch: z.object({
               title: z.string().optional(),
+              workItemType: z.enum(WORK_ITEM_TYPES).optional(),
+              parentWorkItemId: z.string().nullable().optional(),
               status: z.enum(["todo", "doing", "done"]).optional(),
               assigneeId: z.string().optional(),
               dueDate: z.string().optional(),
               milestoneId: z.string().optional(),
               priority: z.enum(["low", "medium", "high"]).optional(),
+              statusId: z.string().optional(),
             }),
           }),
         ),

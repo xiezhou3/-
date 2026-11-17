@@ -5,22 +5,45 @@ import {
   labels,
   milestones,
   projectFiles,
+  projects,
+  releases,
   taskAssignees,
   taskAttachments,
   taskDependencies,
   taskLabels,
+  taskWorkLogs,
+  taskWatchers,
   tasks,
   users,
+  workflowStatuses,
+  type BugSeverity,
   type TaskPriority,
   type TaskStatus,
+  type WorkItemType,
 } from "@/db/schema";
 import { AppError, ForbiddenError } from "./errors";
 import { getTeamMembership } from "./team";
 import { getProjectForUser } from "./project";
-import { notifyTaskAssigned, notifyTaskCompleted } from "./notify";
+import {
+  notifyTaskAssigned,
+  notifyTaskCompleted,
+  notifyTaskStatusChanged,
+} from "./notify";
+import { createTaskNotifications } from "./notification";
+import { taskCommentSummary } from "./task-collaboration";
+import { assertSprintAssignable, isSprintClosed } from "./sprint";
+import { triggerTaskStatusAutomation } from "./automation-trigger";
+import {
+  assertTransitionAllowed,
+  enforceWipLimit,
+  ensureProjectWorkflow,
+  getWorkflowStatusByCategory,
+  getWorkflowStatusById,
+} from "./workflow";
 
 // 任务写操作角色：admin + student（teacher 只读，设计文档 §5）
 const TASK_WRITE_ROLES = ["admin", "student"];
+type Executor = DbTx | typeof db;
 
 export type TaskAssignee = { id: string; name: string };
 export type TaskAttachment = {
@@ -69,6 +92,90 @@ async function validateMilestone(projectId: string, milestoneId: string) {
   if (!m) throw new AppError("里程碑不属于该项目");
 }
 
+async function validateRelease(projectId: string, releaseId: string) {
+  const [release] = await db
+    .select({ id: releases.id })
+    .from(releases)
+    .where(and(eq(releases.id, releaseId), eq(releases.projectId, projectId)));
+  if (!release) throw new AppError("版本不属于该项目");
+}
+
+function validateEstimate(estimate: number | null | undefined) {
+  if (
+    estimate !== undefined &&
+    estimate !== null &&
+    (!Number.isInteger(estimate) || estimate < 0)
+  ) {
+    throw new AppError("故事点必须是非负整数");
+  }
+}
+
+function validateEstimatedHours(hours: number | null | undefined) {
+  if (
+    hours !== undefined &&
+    hours !== null &&
+    (!Number.isFinite(hours) || hours < 0)
+  ) {
+    throw new AppError("预估工时必须是非负数");
+  }
+}
+
+async function backfillProjectTaskNumbers(
+  exec: Executor,
+  projectId: string,
+) {
+  await exec.execute(
+    sql`select pg_advisory_xact_lock(hashtext(${`task-number:${projectId}`}))`,
+  );
+  const [[current], [project]] = await Promise.all([
+    exec
+      .select({
+        maxNumber: sql<number>`coalesce(max(${tasks.taskNumber}), 0)::int`,
+      })
+      .from(tasks)
+      .where(eq(tasks.projectId, projectId)),
+    exec
+      .select({ taskSequence: projects.taskSequence })
+      .from(projects)
+      .where(eq(projects.id, projectId)),
+  ]);
+  const startNumber = Math.max(
+    current?.maxNumber ?? 0,
+    project?.taskSequence ?? 0,
+  );
+  await exec.execute(sql`
+    with numbered as (
+      select
+        id,
+        row_number() over (order by created_at, id) + ${startNumber} as next_number
+      from tasks
+      where project_id = ${projectId} and task_number is null
+    )
+    update tasks
+    set task_number = numbered.next_number
+    from numbered
+    where tasks.id = numbered.id
+  `);
+  const [after] = await exec
+    .select({
+      maxNumber: sql<number>`coalesce(max(${tasks.taskNumber}), 0)::int`,
+    })
+    .from(tasks)
+    .where(eq(tasks.projectId, projectId));
+  await exec
+    .update(projects)
+    .set({
+      taskSequence: sql`greatest(${projects.taskSequence}, ${after?.maxNumber ?? 0})`,
+    })
+    .where(eq(projects.id, projectId));
+}
+
+export async function ensureProjectTaskNumbers(projectId: string) {
+  await db.transaction(async (tx) => {
+    await backfillProjectTaskNumbers(tx, projectId);
+  });
+}
+
 // 父任务须存在且同项目——防跨项目挂载
 async function validateParentTask(projectId: string, parentTaskId: string) {
   const [p] = await db
@@ -78,46 +185,198 @@ async function validateParentTask(projectId: string, parentTaskId: string) {
   if (!p) throw new AppError("父任务不属于该项目");
 }
 
+function requiredWorkItemParentType(childType: WorkItemType) {
+  if (childType === "story") return "epic" as const;
+  if (childType === "task" || childType === "bug") return "story" as const;
+  return null;
+}
+
+async function validateWorkItemParent(
+  projectId: string,
+  childType: WorkItemType,
+  parentWorkItemId: string | null | undefined,
+) {
+  if (!parentWorkItemId) {
+    if (childType === "epic") return;
+    return;
+  }
+  if (childType === "epic") {
+    throw new AppError("Epic 不能设置父工作项");
+  }
+
+  const [parent] = await db
+    .select({
+      id: tasks.id,
+      projectId: tasks.projectId,
+      workItemType: tasks.workItemType,
+    })
+    .from(tasks)
+    .where(eq(tasks.id, parentWorkItemId));
+  if (!parent || parent.projectId !== projectId) {
+    throw new AppError("父工作项不属于该项目");
+  }
+
+  const expectedParentType = requiredWorkItemParentType(childType);
+  if (parent.workItemType !== expectedParentType) {
+    if (childType === "story") {
+      throw new AppError("Story 的父工作项必须是 Epic");
+    }
+    throw new AppError(`${childType === "bug" ? "Bug" : "Task"} 的父工作项必须是 Story`);
+  }
+}
+
+async function validateWorkItemTypeChange(
+  taskId: string,
+  nextType: WorkItemType,
+) {
+  const children = await db
+    .select({ id: tasks.id, workItemType: tasks.workItemType })
+    .from(tasks)
+    .where(eq(tasks.parentWorkItemId, taskId));
+
+  for (const child of children) {
+    const expected = requiredWorkItemParentType(child.workItemType);
+    if (expected !== nextType) {
+      throw new AppError("现有下级工作项与目标类型不兼容，请先调整下级");
+    }
+  }
+}
+
+export async function notifyWatchersOfStatusChange(
+  actorId: string,
+  task: typeof tasks.$inferSelect,
+  fromStatus: string,
+  toStatus: string,
+) {
+  const watchers = await db
+    .select({ userId: taskWatchers.userId })
+    .from(taskWatchers)
+    .where(eq(taskWatchers.taskId, task.id));
+  const recipientIds = watchers
+    .map((watcher) => watcher.userId)
+    .filter((userId) => userId !== actorId);
+  if (recipientIds.length === 0) return;
+  await createTaskNotifications({
+    recipientIds,
+    projectId: task.projectId,
+    taskId: task.id,
+    actorId,
+    type: "task_status",
+    title: `任务状态变更：${task.title}`,
+    body: `${fromStatus} → ${toStatus}`,
+  });
+  void notifyTaskStatusChanged(
+    task,
+    actorId,
+    fromStatus,
+    toStatus,
+    recipientIds,
+  );
+}
+
 export async function createTask(
   actorId: string,
   projectId: string,
   input: {
     title: string;
+    workItemType?: WorkItemType;
+    bugSeverity?: BugSeverity;
+    parentWorkItemId?: string;
     description?: string;
     assigneeId?: string;
     assigneeIds?: string[];
     startDate?: string;
     dueDate?: string;
     milestoneId?: string;
+    sprintId?: string;
+    releaseId?: string;
     priority?: TaskPriority;
+    estimate?: number;
+    estimatedHours?: number;
+    backlogRank?: number;
     status?: TaskStatus;
+    statusId?: string;
     parentTaskId?: string;
   },
   opts?: { tx?: DbTx },
 ) {
   const access = await requireTaskWrite(actorId, projectId);
+  await ensureProjectWorkflow(projectId);
   const assigneeIds = uniqueIds(
     input.assigneeIds ?? (input.assigneeId ? [input.assigneeId] : []),
   );
   await validateAssignees(access.project.teamId, assigneeIds);
   if (input.milestoneId) await validateMilestone(projectId, input.milestoneId);
+  if (input.sprintId) await assertSprintAssignable(projectId, input.sprintId);
+  if (input.releaseId) await validateRelease(projectId, input.releaseId);
+  validateEstimate(input.estimate);
+  validateEstimatedHours(input.estimatedHours);
   if (input.parentTaskId) await validateParentTask(projectId, input.parentTaskId);
+  const workItemType = input.workItemType ?? "task";
+  if (input.bugSeverity && workItemType !== "bug") {
+    throw new AppError("只有 Bug 可以设置严重程度");
+  }
+  await validateWorkItemParent(
+    projectId,
+    workItemType,
+    input.parentWorkItemId,
+  );
+  const targetStatus = input.statusId
+    ? await getWorkflowStatusById(db, projectId, input.statusId)
+    : await getWorkflowStatusByCategory(
+        db,
+        projectId,
+        input.status ?? "todo",
+      );
 
   const insertTask = async (exec: DbTx | typeof db) => {
+    await backfillProjectTaskNumbers(exec, projectId);
+    const [sequence] = await exec
+      .update(projects)
+      .set({ taskSequence: sql`${projects.taskSequence} + 1` })
+      .where(eq(projects.id, projectId))
+      .returning({ value: projects.taskSequence });
+    let backlogRank = input.backlogRank;
+    if (backlogRank === undefined) {
+      const [rank] = await exec
+        .select({
+          maxRank: sql<number>`coalesce(max(${tasks.backlogRank}), 0)`,
+        })
+        .from(tasks)
+        .where(
+          and(
+            eq(tasks.projectId, projectId),
+            input.sprintId
+              ? eq(tasks.sprintId, input.sprintId)
+              : sql`${tasks.sprintId} is null`,
+          ),
+        );
+      backlogRank = (rank?.maxRank ?? 0) + 1024;
+    }
     const [task] = await exec
       .insert(tasks)
       .values({
+        taskNumber: sequence.value,
         projectId,
         createdById: actorId,
         title: input.title,
+        workItemType,
+        bugSeverity: input.bugSeverity,
+        parentWorkItemId: input.parentWorkItemId,
         description: input.description,
         assigneeId: assigneeIds[0] ?? null,
         startDate: input.startDate,
         dueDate: input.dueDate,
         milestoneId: input.milestoneId,
+        sprintId: input.sprintId,
+        releaseId: input.releaseId,
         parentTaskId: input.parentTaskId,
         priority: input.priority ?? "medium",
-        status: input.status ?? "todo",
+        estimate: input.estimate,
+        estimatedHours: input.estimatedHours,
+        backlogRank,
+        status: targetStatus.category,
+        statusId: targetStatus.id,
         sortOrder: Date.now(),
       })
       .returning();
@@ -151,14 +410,22 @@ export async function updateTask(
   taskId: string,
   patch: {
     title?: string;
+    workItemType?: WorkItemType;
+    bugSeverity?: BugSeverity | null;
+    parentWorkItemId?: string | null;
     description?: string | null;
     assigneeId?: string | null;
     assigneeIds?: string[];
     startDate?: string | null;
     dueDate?: string | null;
     milestoneId?: string | null;
+    sprintId?: string | null;
+    releaseId?: string | null;
     status?: TaskStatus;
+    statusId?: string;
     priority?: TaskPriority;
+    estimate?: number | null;
+    estimatedHours?: number | null;
     completionNote?: string | null;
   },
   opts?: { tx?: DbTx },
@@ -167,10 +434,8 @@ export async function updateTask(
   const [task] = await query.select().from(tasks).where(eq(tasks.id, taskId));
   if (!task) throw new AppError("任务不存在");
 
-  const access = await requireProjectAccess(actorId, task.projectId);
-  if (access.role !== "admin") {
-    throw new ForbiddenError("只有项目管理员可以编辑任务");
-  }
+  const access = await requireTaskWrite(actorId, task.projectId);
+  await ensureProjectWorkflow(task.projectId);
   const hasAssigneePatch =
     patch.assigneeIds !== undefined || patch.assigneeId !== undefined;
   const nextAssigneeIds = hasAssigneePatch
@@ -187,6 +452,88 @@ export async function updateTask(
     await validateAssignees(access.project.teamId, nextAssigneeIds);
   }
   if (patch.milestoneId) await validateMilestone(task.projectId, patch.milestoneId);
+  if (patch.sprintId) {
+    await assertSprintAssignable(task.projectId, patch.sprintId);
+  }
+  if (patch.releaseId) await validateRelease(task.projectId, patch.releaseId);
+  if (
+    patch.sprintId !== undefined &&
+    task.sprintId &&
+    (await isSprintClosed(task.sprintId))
+  ) {
+    throw new AppError("已关闭迭代中的任务不能重新规划");
+  }
+  validateEstimate(patch.estimate);
+  validateEstimatedHours(patch.estimatedHours);
+  const nextWorkItemType = patch.workItemType ?? task.workItemType;
+  const nextBugSeverity =
+    nextWorkItemType === "bug"
+      ? patch.bugSeverity !== undefined
+        ? patch.bugSeverity
+        : task.bugSeverity
+      : null;
+  if (patch.bugSeverity && nextWorkItemType !== "bug") {
+    throw new AppError("只有 Bug 可以设置严重程度");
+  }
+  const nextParentWorkItemId =
+    patch.parentWorkItemId !== undefined
+      ? patch.parentWorkItemId
+      : task.parentWorkItemId;
+  if (nextParentWorkItemId === taskId) {
+    throw new AppError("工作项不能以自身为父项");
+  }
+  if (
+    patch.workItemType !== undefined &&
+    patch.workItemType !== task.workItemType
+  ) {
+    await validateWorkItemTypeChange(taskId, patch.workItemType);
+  }
+  if (
+    patch.workItemType !== undefined ||
+    patch.parentWorkItemId !== undefined
+  ) {
+    await validateWorkItemParent(
+      task.projectId,
+      nextWorkItemType,
+      nextParentWorkItemId,
+    );
+  }
+  const previousStatus = task.statusId
+    ? await getWorkflowStatusById(query, task.projectId, task.statusId)
+    : await getWorkflowStatusByCategory(query, task.projectId, task.status);
+  let nextStatus = previousStatus;
+  if (patch.statusId !== undefined) {
+    nextStatus = await getWorkflowStatusById(
+      query,
+      task.projectId,
+      patch.statusId,
+    );
+  } else if (patch.status !== undefined) {
+    nextStatus = await getWorkflowStatusByCategory(
+      query,
+      task.projectId,
+      patch.status,
+    );
+  }
+  if (
+    patch.statusId !== undefined ||
+    patch.status !== undefined
+  ) {
+    await assertTransitionAllowed(
+      query,
+      task.projectId,
+      task.statusId,
+      nextStatus.id,
+    );
+    if (task.statusId !== nextStatus.id) {
+      await enforceWipLimit(
+        query,
+        task.projectId,
+        nextStatus.id,
+        task.id,
+      );
+    }
+  }
 
   const applyUpdate = async (exec: DbTx | typeof db) => {
     // 显式白名单构造，勿用 ...patch 展开：运行时宽对象可夹带 projectId/sortOrder 等越权字段
@@ -195,6 +542,16 @@ export async function updateTask(
       // updatedAt 取 DB 时钟（now()）而非宿主机 new Date()：与 createdAt 的 defaultNow() 同源，保证单调性
       .set({
         ...(patch.title !== undefined && { title: patch.title }),
+        ...(patch.workItemType !== undefined && {
+          workItemType: patch.workItemType,
+        }),
+        ...((patch.bugSeverity !== undefined ||
+          patch.workItemType !== undefined) && {
+          bugSeverity: nextBugSeverity,
+        }),
+        ...(patch.parentWorkItemId !== undefined && {
+          parentWorkItemId: patch.parentWorkItemId,
+        }),
         ...(patch.description !== undefined && { description: patch.description }),
         ...(nextAssigneeIds !== undefined && {
           assigneeId: nextAssigneeIds[0] ?? null,
@@ -202,8 +559,17 @@ export async function updateTask(
         ...(patch.startDate !== undefined && { startDate: patch.startDate }),
         ...(patch.dueDate !== undefined && { dueDate: patch.dueDate }),
         ...(patch.milestoneId !== undefined && { milestoneId: patch.milestoneId }),
-        ...(patch.status !== undefined && { status: patch.status }),
+        ...(patch.sprintId !== undefined && { sprintId: patch.sprintId }),
+        ...(patch.releaseId !== undefined && { releaseId: patch.releaseId }),
+        ...((patch.status !== undefined || patch.statusId !== undefined) && {
+          status: nextStatus.category,
+          statusId: nextStatus.id,
+        }),
         ...(patch.priority !== undefined && { priority: patch.priority }),
+        ...(patch.estimate !== undefined && { estimate: patch.estimate }),
+        ...(patch.estimatedHours !== undefined && {
+          estimatedHours: patch.estimatedHours,
+        }),
         ...(patch.completionNote !== undefined && {
           completionNote: patch.completionNote,
         }),
@@ -242,7 +608,38 @@ export async function updateTask(
       }
     }
     // 完成：通知创建者(≠操作者)
-    if (patch.status === "done" && task.status !== "done") void notifyTaskCompleted(updated, actorId);
+    if (
+      nextStatus.category === "done" &&
+      previousStatus.category !== "done"
+    ) {
+      void notifyTaskCompleted(updated, actorId);
+    }
+    if (
+      (patch.statusId !== undefined || patch.status !== undefined) &&
+      previousStatus.id !== nextStatus.id
+    ) {
+      await notifyWatchersOfStatusChange(
+        actorId,
+        updated,
+        previousStatus.name,
+        nextStatus.name,
+      );
+    }
+  }
+  if (
+    (patch.statusId !== undefined || patch.status !== undefined) &&
+    previousStatus.id !== nextStatus.id
+  ) {
+    await triggerTaskStatusAutomation({
+      actorId,
+      projectId: updated.projectId,
+      taskId: updated.id,
+      taskTitle: updated.title,
+      workItemType: updated.workItemType,
+      priority: updated.priority,
+      fromStatus: previousStatus.category,
+      toStatus: nextStatus.category,
+    });
   }
   return updated;
 }
@@ -391,6 +788,23 @@ async function attachmentsByTask(
   return map;
 }
 
+async function actualHoursByTask(taskIds: string[]) {
+  const map = new Map<string, number>();
+  if (taskIds.length === 0) return map;
+
+  const rows = await db
+    .select({
+      taskId: taskWorkLogs.taskId,
+      hours: sql<number>`coalesce(sum(${taskWorkLogs.hours}), 0)::float8`,
+    })
+    .from(taskWorkLogs)
+    .where(inArray(taskWorkLogs.taskId, taskIds))
+    .groupBy(taskWorkLogs.taskId);
+
+  for (const row of rows) map.set(row.taskId, row.hours);
+  return map;
+}
+
 export async function getTaskAssigneeIds(
   taskId: string,
   legacyAssigneeId: string | null = null,
@@ -429,38 +843,58 @@ function withAssignees<
 
 export async function listProjectTasks(actorId: string, projectId: string) {
   await requireProjectAccess(actorId, projectId);
+  await ensureProjectWorkflow(projectId);
+  await ensureProjectTaskNumbers(projectId);
   const rows = await db
     .select({
       id: tasks.id,
+      taskNumber: tasks.taskNumber,
       title: tasks.title,
+      workItemType: tasks.workItemType,
+      bugSeverity: tasks.bugSeverity,
+      parentWorkItemId: tasks.parentWorkItemId,
       description: tasks.description,
       status: tasks.status,
+      statusId: tasks.statusId,
+      statusName: workflowStatuses.name,
       priority: tasks.priority,
       startDate: tasks.startDate,
       dueDate: tasks.dueDate,
+      estimate: tasks.estimate,
+      estimatedHours: tasks.estimatedHours,
+      backlogRank: tasks.backlogRank,
       sortOrder: tasks.sortOrder,
       milestoneId: tasks.milestoneId,
+      sprintId: tasks.sprintId,
+      releaseId: tasks.releaseId,
       parentTaskId: tasks.parentTaskId,
       assigneeId: tasks.assigneeId,
       assigneeName: users.name,
+      createdAt: tasks.createdAt,
       updatedAt: tasks.updatedAt,
       completionNote: tasks.completionNote,
     })
     .from(tasks)
     .leftJoin(users, eq(tasks.assigneeId, users.id))
+    .leftJoin(workflowStatuses, eq(tasks.statusId, workflowStatuses.id))
     .where(eq(tasks.projectId, projectId))
     .orderBy(tasks.sortOrder);
 
   const taskIds = rows.map((r) => r.id);
-  const [labels, assignees, attachments] = await Promise.all([
+  const [labels, assignees, attachments, collaboration, actualHours] = await Promise.all([
     labelsByTask(taskIds),
     assigneesByTask(taskIds),
     attachmentsByTask(taskIds),
+    taskCommentSummary(actorId, projectId, taskIds),
+    actualHoursByTask(taskIds),
   ]);
   return withAssignees(rows, assignees).map((row) => ({
     ...row,
     labels: labels.get(row.id) ?? [],
     attachments: attachments.get(row.id) ?? [],
+    actualHours: actualHours.get(row.id) ?? 0,
+    commentCount: collaboration.counts.get(row.id) ?? 0,
+    mentioned: collaboration.mentions.has(row.id),
   }));
 }
 
@@ -472,17 +906,29 @@ export async function listSubtasks(actorId: string, parentTaskId: string) {
     .where(eq(tasks.id, parentTaskId));
   if (!parent) throw new AppError("任务不存在");
   await requireProjectAccess(actorId, parent.projectId);
+  await ensureProjectWorkflow(parent.projectId);
+  await ensureProjectTaskNumbers(parent.projectId);
 
   const rows = await db
     .select({
       id: tasks.id,
+      taskNumber: tasks.taskNumber,
       title: tasks.title,
+      workItemType: tasks.workItemType,
+      bugSeverity: tasks.bugSeverity,
+      parentWorkItemId: tasks.parentWorkItemId,
       description: tasks.description,
       status: tasks.status,
+      statusId: tasks.statusId,
+      statusName: workflowStatuses.name,
       priority: tasks.priority,
       startDate: tasks.startDate,
       dueDate: tasks.dueDate,
+      estimate: tasks.estimate,
+      estimatedHours: tasks.estimatedHours,
       milestoneId: tasks.milestoneId,
+      sprintId: tasks.sprintId,
+      releaseId: tasks.releaseId,
       parentTaskId: tasks.parentTaskId,
       assigneeId: tasks.assigneeId,
       assigneeName: users.name,
@@ -491,16 +937,19 @@ export async function listSubtasks(actorId: string, parentTaskId: string) {
     })
     .from(tasks)
     .leftJoin(users, eq(tasks.assigneeId, users.id))
+    .leftJoin(workflowStatuses, eq(tasks.statusId, workflowStatuses.id))
     .where(eq(tasks.parentTaskId, parentTaskId))
     .orderBy(tasks.sortOrder);
   const taskIds = rows.map((row) => row.id);
-  const [assignees, attachments] = await Promise.all([
+  const [assignees, attachments, actualHours] = await Promise.all([
     assigneesByTask(taskIds),
     attachmentsByTask(taskIds),
+    actualHoursByTask(taskIds),
   ]);
   return withAssignees(rows, assignees).map((row) => ({
     ...row,
     attachments: attachments.get(row.id) ?? [],
+    actualHours: actualHours.get(row.id) ?? 0,
   }));
 }
 
@@ -511,13 +960,19 @@ export async function createSubtask(
   parentTaskId: string,
   input: {
     title: string;
+    workItemType?: WorkItemType;
+    bugSeverity?: BugSeverity;
     description?: string;
     assigneeId?: string;
     assigneeIds?: string[];
     startDate?: string;
     dueDate?: string;
     milestoneId?: string;
+    sprintId?: string;
+    releaseId?: string;
     priority?: TaskPriority;
+    estimate?: number;
+    estimatedHours?: number;
   },
 ) {
   const [parent] = await db
@@ -534,15 +989,25 @@ export async function getTaskDetail(actorId: string, taskId: string) {
   const [row] = await db
     .select({
       id: tasks.id,
+      taskNumber: tasks.taskNumber,
       projectId: tasks.projectId,
       title: tasks.title,
+      workItemType: tasks.workItemType,
+      bugSeverity: tasks.bugSeverity,
+      parentWorkItemId: tasks.parentWorkItemId,
       description: tasks.description,
       completionNote: tasks.completionNote,
       status: tasks.status,
+      statusId: tasks.statusId,
+      statusName: workflowStatuses.name,
       priority: tasks.priority,
       startDate: tasks.startDate,
       dueDate: tasks.dueDate,
+      estimate: tasks.estimate,
+      estimatedHours: tasks.estimatedHours,
       milestoneId: tasks.milestoneId,
+      sprintId: tasks.sprintId,
+      releaseId: tasks.releaseId,
       parentTaskId: tasks.parentTaskId,
       assigneeId: tasks.assigneeId,
       assigneeName: users.name,
@@ -551,19 +1016,32 @@ export async function getTaskDetail(actorId: string, taskId: string) {
     })
     .from(tasks)
     .leftJoin(users, eq(tasks.assigneeId, users.id))
+    .leftJoin(workflowStatuses, eq(tasks.statusId, workflowStatuses.id))
     .where(eq(tasks.id, taskId));
   if (!row) throw new AppError("任务不存在");
   await requireProjectAccess(actorId, row.projectId);
-  const [labels, assignees, attachments] = await Promise.all([
+  if (!row.statusId) {
+    await ensureProjectWorkflow(row.projectId);
+    const status = await getWorkflowStatusByCategory(
+      db,
+      row.projectId,
+      row.status,
+    );
+    row.statusId = status.id;
+    row.statusName = status.name;
+  }
+  const [labels, assignees, attachments, actualHours] = await Promise.all([
     labelsByTask([row.id]),
     assigneesByTask([row.id]),
     attachmentsByTask([row.id]),
+    actualHoursByTask([row.id]),
   ]);
   const decorated = withAssignees([row], assignees)[0];
   return {
     ...decorated,
     labels: labels.get(row.id) ?? [],
     attachments: attachments.get(row.id) ?? [],
+    actualHours: actualHours.get(row.id) ?? 0,
   };
 }
 

@@ -1,9 +1,13 @@
-import Link from "next/link";
 import { z } from "zod";
 import { notFound, redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { getProjectForUser, listProjectMilestones } from "@/lib/project";
 import { listProjectTasks } from "@/lib/task";
+import {
+  WORK_ITEM_TYPE_BADGE,
+  WORK_ITEM_TYPE_LABEL,
+  type WorkItemTypeValue,
+} from "@/lib/work-item";
 
 const DAY = 86_400_000;
 
@@ -25,6 +29,7 @@ interface Bar {
   id: string;
   title: string;
   status: string;
+  workItemType: WorkItemTypeValue;
   leftPct: number;
   widthPct: number;
   overdue: boolean;
@@ -72,9 +77,6 @@ export default async function TimelinePage({
   return (
     <main className="mx-auto max-w-5xl space-y-6 py-8">
       <header className="space-y-1">
-        <Link href={`/projects/${projectId}`} className="text-xs text-ink-soft hover:text-primary">
-          ← 返回项目
-        </Link>
         <h1 className="font-display text-2xl font-semibold text-ink">
           {access.project.name} · 时间线
         </h1>
@@ -98,8 +100,11 @@ export default async function TimelinePage({
           </h2>
           <ul className="flex flex-wrap gap-2">
             {unscheduled.map((t) => (
-              <li key={t.id} className="ac-badge bg-sunken text-ink-soft">
-                {t.title}
+              <li key={t.id} className="flex items-center gap-1.5">
+                <span className={`ac-badge ${WORK_ITEM_TYPE_BADGE[t.workItemType]}`}>
+                  {WORK_ITEM_TYPE_LABEL[t.workItemType]}
+                </span>
+                <span className="text-xs text-ink-soft">{t.title}</span>
               </li>
             ))}
           </ul>
@@ -158,6 +163,7 @@ function Gantt({
       id: task.id,
       title: task.title,
       status: task.status,
+      workItemType: task.workItemType,
       leftPct: pct(start),
       widthPct: Math.max(pct(end) - pct(start), 1.5),
       overdue,
@@ -212,7 +218,9 @@ function Gantt({
                       style={{ left: `${b.leftPct}%`, width: `${b.widthPct}%`, minWidth: "2rem" }}
                       title={b.rangeLabel}
                     >
-                      <span className="truncate">{b.rangeLabel}</span>
+                    <span className="truncate">
+                      {WORK_ITEM_TYPE_LABEL[b.workItemType]} · {b.rangeLabel}
+                    </span>
                     </span>
                   </span>
                 </li>

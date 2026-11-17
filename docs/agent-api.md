@@ -25,12 +25,17 @@ Authorization: Bearer <token>
 |---|---|---|---|
 | `projectId` | uuid | 是 | 目标项目 |
 | `title` | string | 是 | 任务标题 |
+| `workItemType` | `epic`\|`story`\|`task`\|`bug` | 否 | 工作项类型，默认 `task` |
+| `parentWorkItemId` | uuid | 否 | 上级工作项；Story→Epic，Task/Bug→Story |
 | `description` | string | 否 | 描述 |
 | `assigneeId` | uuid | 否 | 负责人（须为团队成员） |
 | `startDate` | string | 否 | 起始日 `YYYY-MM-DD`（供时间线排期） |
 | `dueDate` | string | 否 | 截止日 `YYYY-MM-DD` |
 | `milestoneId` | uuid | 否 | 里程碑（须属该项目） |
+| `releaseId` | uuid | 否 | 所属版本 / Release（须属该项目） |
 | `priority` | `low`\|`medium`\|`high` | 否 | 默认 `medium` |
+| `estimate` | integer | 否 | Story Point，非负整数 |
+| `estimatedHours` | number | 否 | 预估工时（小时），非负数 |
 
 ```bash
 curl -X POST "$AGILECAMPUS_URL/api/agent/tasks" \

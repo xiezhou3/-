@@ -12,6 +12,18 @@
 - **看板内新建任务**：状态列加号打开完整任务弹窗，创建后直接插入目标列
 - **固定高度看板**：各列等高，可视区最多容纳三条标准任务，超出后在列内滚动
 - **项目看板**：里程碑 + 拖拽看板 + 任务增强（描述/完成情况/起止日/后置任务）+ 标签筛选与四维度分组（状态/指派人/优先级/里程碑，各分组下拖拽皆生效）
+- **Sprint 迭代管理**：创建/启动/关闭迭代、迭代目标与起止日期、故事点容量、Backlog 规划、未完成任务退回或顺延
+- **Backlog 双栏规划**：产品待办池、行内快速创建、拖拽排序、Backlog/Sprint 跨栏移动与顺序持久化
+- **工作项体系**：Epic / Story / Task / Bug 四类工作项、标准三层父子关系、类型筛选与类型分组
+- **可配置工作流**：项目级状态、看板列顺序、WIP 上限、状态流转矩阵与任务批量修改
+- **项目规划工作台**：项目周期、里程碑、Story Point、预估/实际工时、成员容量、Release 与只读路线图
+- **统一项目导航**：桌面固定左侧栏、移动端横向项目导航，集中进入看板、迭代、规划、集成、自动化与配置
+- **研发集成中心**：GitHub/GitLab、CI/CD、通用 Webhook、外部事件、任务开发活动与 Release 交付看板
+- **自动化模块中心**：常用模板、自定义规则、任务/Release/外部事件触发、站内通知、创建 Bug 与推进状态
+- **发布与缺陷闭环**：Release Notes、发布检查清单、Bug 四档严重程度与现有工作流验证
+- **任务协作**：任务评论、@成员、评论附件、编辑/软删除、任务关注、站内消息与飞书通知
+- **个人工作台**：`/workbench` 聚合我的任务、今日待办、逾期任务、待审核、最近活动与项目负载
+- **搜索与视图**：全局搜索任务/项目/团队/Release、项目内任务编号、常用筛选、保存视图与最近访问
 - **跨项目总览**：`/projects` 聚合我所在全部团队的项目与任务进度
 - **AI 项目助手**：对话式拆解任务，两段式确认后落库（读工具 + 四写兵器草案）
 - **资源占用登记**：团队共享资源（服务器/算力等）的占用登记与时长汇总，纯登记无审批
@@ -33,6 +45,8 @@ npm run db:push               # 推送 schema 到开发库
 npm run db:push:test          # 推送 schema 到测试库
 npm run dev
 ```
+
+> Windows 用户可直接双击项目根目录的 `启动网站.cmd`：它会启动 Docker/PostgreSQL、同步数据库结构、启动开发服务器，并打开 `http://localhost:3000`。
 
 > 项目文件默认写入 `D:\agilecampus\storage`；可通过 `.env` 的
 > `FILE_STORAGE_ROOT` 修改，单文件上限由 `MAX_FILE_SIZE_BYTES` 控制。
@@ -84,8 +98,17 @@ docker compose -f docker-compose.prod.yml up -d --build
 | `/teams/[teamId]/projects` | 项目列表（admin 创建） |
 | `/teams/[teamId]/resources` | 资源占用登记 + 时长统计 |
 | `/teams/[teamId]/labels` | 团队标签管理（admin 增删改，成员只读） |
+| `/workbench` | 个人工作台（我的任务、今日事项、逾期、审核、活动与个人视图） |
+| `/search` | 全局搜索（任务编号、任务、项目、团队与 Release） |
 | `/projects` | 所有项目总览（跨团队聚合 + 任务统计） |
 | `/projects/[projectId]` | 项目详情：里程碑 + 看板 + 任务 + AI 助手 |
+| `/projects/[projectId]/backlog` | 产品 Backlog 与 Sprint Backlog 双栏规划 |
+| `/projects/[projectId]/sprints` | Sprint 迭代规划与管理 |
+| `/projects/[projectId]/planning` | 项目规划工作台（工时、容量、Release、路线图） |
+| `/projects/[projectId]/integrations` | 集成中心（代码仓库、CI/CD、Webhook 与外部事件） |
+| `/projects/[projectId]/automations` | 自动化规则、模板、启停与执行日志 |
+| `/projects/[projectId]/releases/[releaseId]` | Release 交付看板（PR、流水线、部署与发布状态） |
+| `/projects/[projectId]/workflow` | 工作流状态、WIP、列排序与流转规则 |
 | `/projects/[projectId]/files` | 项目文件库（真实元数据与本地文件存储） |
 | `/projects/[projectId]/timeline` | 项目时间线甘特 |
 | `/settings/tokens` | 个人访问令牌（生成/撤销） |
@@ -115,12 +138,17 @@ Authorization: Bearer <token>
 |---|---|---|---|
 | `projectId` | uuid | 是 | 目标项目 |
 | `title` | string | 是 | 任务标题 |
+| `workItemType` | `epic`\|`story`\|`task`\|`bug` | 否 | 工作项类型，默认 `task` |
+| `parentWorkItemId` | uuid | 否 | 上级工作项；Story 须挂 Epic，Task/Bug 须挂 Story |
 | `description` | string | 否 | 描述 |
 | `assigneeId` | uuid | 否 | 负责人（须为团队成员） |
 | `startDate` | string | 否 | 起始日 `YYYY-MM-DD`（供时间线排期） |
 | `dueDate` | string | 否 | 截止日 `YYYY-MM-DD` |
 | `milestoneId` | uuid | 否 | 里程碑（须属该项目） |
+| `releaseId` | uuid | 否 | 所属版本 / Release（须属该项目） |
 | `priority` | `low`\|`medium`\|`high` | 否 | 默认 `medium` |
+| `estimate` | integer | 否 | Story Point，非负整数 |
+| `estimatedHours` | number | 否 | 预估工时（小时），非负数 |
 
 ```bash
 curl -X POST "$AGILECAMPUS_URL/api/agent/tasks" \
@@ -190,4 +218,5 @@ curl -X POST "$AGILECAMPUS_URL/api/agent/resource-usage" \
 
 - 设计与作战图：`docs/superpowers/`
 - Agent 写入 API：`docs/agent-api.md`
+- 研发集成 Webhook：`docs/integrations.md`
 - 技术债备案：`docs/BACKLOG.md`

@@ -1,7 +1,13 @@
 import type { FilterableTask, GroupBy } from "./board-filters";
+import {
+  WORK_ITEM_TYPE_LABEL,
+  WORK_ITEM_TYPES,
+  WORK_ITEM_TYPE_TEXT,
+} from "./work-item";
 
 export type ColumnPatch = {
   status?: "todo" | "doing" | "done";
+  statusId?: string;
 };
 
 export type BoardColumn = {
@@ -10,14 +16,26 @@ export type BoardColumn = {
   tone: string; // tailwind 文字色 class
   patch: ColumnPatch;
   matches: (t: FilterableTask) => boolean;
+  wipLimit?: number | null;
+  taskCount?: number;
+  category?: "todo" | "doing" | "done";
 };
 
 export type ColumnContext = {
   members: { id: string; name: string }[];
   milestones: { id: string; name: string }[];
+  statuses?: Array<{
+    id: string;
+    name: string;
+    category: "todo" | "doing" | "done";
+    color: string;
+    wipLimit: number | null;
+    taskCount: number;
+  }>;
 };
 
 export function supportsTaskCreation(column: BoardColumn) {
+  if (column.patch.statusId) return column.category !== "done";
   return column.patch.status === "todo";
 }
 
@@ -76,8 +94,32 @@ export function deriveColumns(group: GroupBy, ctx: ColumnContext): BoardColumn[]
         },
       ];
 
+    case "type":
+      return WORK_ITEM_TYPES.map((type) => ({
+        key: type,
+        label: WORK_ITEM_TYPE_LABEL[type],
+        tone: WORK_ITEM_TYPE_TEXT[type],
+        patch: {},
+        matches: (t: FilterableTask) => t.workItemType === type,
+      }));
+
     case "status":
     default:
+      if (ctx.statuses && ctx.statuses.length > 0) {
+        return ctx.statuses.map((status) => ({
+          key: status.id,
+          label: status.name,
+          tone: WORKFLOW_COLOR_TEXT[status.color] ?? NEUTRAL,
+          patch: {
+            status: status.category,
+            statusId: status.id,
+          } as ColumnPatch,
+          matches: (t: FilterableTask) => t.statusId === status.id,
+          wipLimit: status.wipLimit,
+          taskCount: status.taskCount,
+          category: status.category,
+        }));
+      }
       return (
         [
           { key: "todo", label: "待办", tone: "text-todo" },
@@ -93,6 +135,16 @@ export function deriveColumns(group: GroupBy, ctx: ColumnContext): BoardColumn[]
       }));
   }
 }
+
+export const WORKFLOW_COLOR_TEXT: Record<string, string> = {
+  slate: "text-todo",
+  blue: "text-doing",
+  amber: "text-medium",
+  green: "text-done",
+  red: "text-high",
+  violet: "text-primary",
+  pink: "text-high",
+};
 
 // 标签色板：色板键 → tailwind class。存键不存 hex，配色可控且杜绝样式注入。
 export const LABEL_COLORS = [

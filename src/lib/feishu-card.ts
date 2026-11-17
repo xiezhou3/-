@@ -62,6 +62,47 @@ export function buildCompletedCard(t: CardTask) {
   };
 }
 
+export function buildTaskCommentCard(
+  t: CardTask,
+  actorName: string,
+  comment: string,
+) {
+  return {
+    config: { wide_screen_mode: true },
+    header: { template: "blue", title: { tag: "plain_text", content: "💬 任务新评论" } },
+    elements: [
+      { tag: "div", fields: [
+        field(`**任务**\n${t.title}`, false),
+        field(`**项目**\n${t.projectName}`),
+        field(`**评论人**\n${actorName}`),
+      ] },
+      { tag: "div", text: { tag: "lark_md", content: comment.slice(0, 1000) } },
+      detailButton(t.projectId, t.id),
+    ],
+  };
+}
+
+export function buildTaskStatusCard(
+  t: CardTask,
+  actorName: string,
+  fromStatus: string,
+  toStatus: string,
+) {
+  return {
+    config: { wide_screen_mode: true },
+    header: { template: "orange", title: { tag: "plain_text", content: "任务状态变更" } },
+    elements: [
+      { tag: "div", fields: [
+        field(`**任务**\n${t.title}`, false),
+        field(`**项目**\n${t.projectName}`),
+        field(`**操作人**\n${actorName}`),
+        field(`**状态**\n${fromStatus} → ${toStatus}`, false),
+      ] },
+      detailButton(t.projectId, t.id),
+    ],
+  };
+}
+
 export type ReminderItem = { id: string; title: string; projectId: string };
 
 export function buildDueReminderCard(input: { overdue: ReminderItem[]; dueSoon: ReminderItem[] }) {

@@ -119,12 +119,11 @@ describe("updateTask", () => {
     expect(updated.updatedAt.getTime()).toBeGreaterThanOrEqual(t.updatedAt.getTime());
   });
 
-  it("普通成员不能编辑任务", async () => {
+  it("学生可编辑任务", async () => {
     const { owner, student, project } = await scene();
     const t = await createTask(owner.id, project.id, { title: "任务" });
-    await expect(updateTask(student.id, t.id, { status: "doing" })).rejects.toThrow(
-      "只有项目管理员可以编辑任务",
-    );
+    const updated = await updateTask(student.id, t.id, { status: "doing" });
+    expect(updated.status).toBe("doing");
   });
 
   it("可替换任务的多个负责人", async () => {
@@ -145,7 +144,7 @@ describe("updateTask", () => {
     const { student, teacher, project } = await scene();
     const t = await createTask(student.id, project.id, { title: "任务" });
     await expect(updateTask(teacher.id, t.id, { status: "done" })).rejects.toThrow(
-      "只有项目管理员可以编辑任务",
+      "没有权限",
     );
   });
 
@@ -234,5 +233,31 @@ describe("createTask 记录创建者", () => {
       .from(tasks)
       .where(eq(tasks.id, t.id));
     expect(row.createdById).toBe(student.id);
+  });
+});
+
+describe("Bug 严重程度", () => {
+  beforeEach(resetDb);
+
+  it("Bug 可设置并更新严重程度，普通任务不可设置", async () => {
+    const { owner, project } = await scene();
+    const bug = await createTask(owner.id, project.id, {
+      title: "登录失败",
+      workItemType: "bug",
+      bugSeverity: "critical",
+    });
+    expect(bug.bugSeverity).toBe("critical");
+    const updated = await updateTask(owner.id, bug.id, {
+      bugSeverity: "blocker",
+    });
+    expect(updated.bugSeverity).toBe("blocker");
+
+    await expect(
+      createTask(owner.id, project.id, {
+        title: "普通任务",
+        workItemType: "task",
+        bugSeverity: "major",
+      }),
+    ).rejects.toThrow("只有 Bug 可以设置严重程度");
   });
 });

@@ -10,6 +10,8 @@ import {
   date,
   doublePrecision,
   bigint,
+  integer,
+  boolean,
   index,
   jsonb,
   type AnyPgColumn,
@@ -91,12 +93,90 @@ export const teamInvitations = pgTable(
 );
 
 export const projectStatusEnum = pgEnum("project_status", ["active", "archived"]);
+export const integrationProviderEnum = pgEnum("integration_provider", [
+  "github",
+  "gitlab",
+  "ci",
+  "webhook",
+]);
+export const integrationStatusEnum = pgEnum("integration_status", [
+  "active",
+  "paused",
+]);
+export const automationTriggerEnum = pgEnum("automation_trigger", [
+  "task_status_changed",
+  "external_event",
+  "release_status_changed",
+]);
+export const automationActionEnum = pgEnum("automation_action", [
+  "notify",
+  "create_bug",
+  "set_task_status",
+]);
+export const automationRunStatusEnum = pgEnum("automation_run_status", [
+  "success",
+  "skipped",
+  "failed",
+]);
+export const sprintStatusEnum = pgEnum("sprint_status", [
+  "planned",
+  "active",
+  "closed",
+]);
+export const releaseStatusEnum = pgEnum("release_status", [
+  "planned",
+  "active",
+  "released",
+  "cancelled",
+]);
 export const milestoneStatusEnum = pgEnum("milestone_status", ["open", "done"]);
 export const taskStatusEnum = pgEnum("task_status", ["todo", "doing", "done"]);
 export const taskPriorityEnum = pgEnum("task_priority", ["low", "medium", "high"]);
+export const workflowStatusCategoryEnum = pgEnum("workflow_status_category", [
+  "todo",
+  "doing",
+  "done",
+]);
+export const workflowStatusColorEnum = pgEnum("workflow_status_color", [
+  "slate",
+  "blue",
+  "amber",
+  "green",
+  "red",
+  "violet",
+  "pink",
+]);
+export const workItemTypeEnum = pgEnum("work_item_type", [
+  "epic",
+  "story",
+  "task",
+  "bug",
+]);
+export const bugSeverityEnum = pgEnum("bug_severity", [
+  "blocker",
+  "critical",
+  "major",
+  "minor",
+]);
 export type ProjectStatus = (typeof projectStatusEnum.enumValues)[number];
+export type IntegrationProvider =
+  (typeof integrationProviderEnum.enumValues)[number];
+export type IntegrationStatus =
+  (typeof integrationStatusEnum.enumValues)[number];
+export type AutomationTrigger =
+  (typeof automationTriggerEnum.enumValues)[number];
+export type AutomationAction =
+  (typeof automationActionEnum.enumValues)[number];
+export type AutomationRunStatus =
+  (typeof automationRunStatusEnum.enumValues)[number];
+export type SprintStatus = (typeof sprintStatusEnum.enumValues)[number];
+export type ReleaseStatus = (typeof releaseStatusEnum.enumValues)[number];
 export type TaskStatus = (typeof taskStatusEnum.enumValues)[number];
 export type TaskPriority = (typeof taskPriorityEnum.enumValues)[number];
+export type WorkItemType = (typeof workItemTypeEnum.enumValues)[number];
+export type BugSeverity = (typeof bugSeverityEnum.enumValues)[number];
+export type WorkflowStatusCategory =
+  (typeof workflowStatusCategoryEnum.enumValues)[number];
 
 export const projects = pgTable(
   "projects",
@@ -108,11 +188,211 @@ export const projects = pgTable(
     name: text("name").notNull(),
     description: text("description"),
     status: projectStatusEnum("status").notNull().default("active"),
+    taskSequence: integer("task_sequence").notNull().default(0),
     startDate: date("start_date"),
     endDate: date("end_date"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (t) => [index("projects_team_idx").on(t.teamId)],
+);
+
+export const projectIntegrations = pgTable(
+  "project_integrations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    provider: integrationProviderEnum("provider").notNull(),
+    name: text("name").notNull(),
+    repositoryUrl: text("repository_url"),
+    webhookKey: text("webhook_key").notNull().unique(),
+    status: integrationStatusEnum("status").notNull().default("active"),
+    lastEventAt: timestamp("last_event_at"),
+    createdById: uuid("created_by_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("project_integrations_project_provider_unique").on(
+      t.projectId,
+      t.provider,
+    ),
+    index("project_integrations_project_idx").on(t.projectId),
+  ],
+);
+
+export const automationRules = pgTable(
+  "automation_rules",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    description: text("description"),
+    enabled: boolean("enabled").notNull().default(true),
+    triggerType: automationTriggerEnum("trigger_type").notNull(),
+    conditions: jsonb("conditions").notNull().default({}),
+    actionType: automationActionEnum("action_type").notNull(),
+    actionConfig: jsonb("action_config").notNull().default({}),
+    createdById: uuid("created_by_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    lastRunAt: timestamp("last_run_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("automation_rules_project_name_unique").on(t.projectId, t.name),
+    index("automation_rules_project_enabled_idx").on(t.projectId, t.enabled),
+  ],
+);
+
+export const automationRuns = pgTable(
+  "automation_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    ruleId: uuid("rule_id").references(() => automationRules.id, {
+      onDelete: "set null",
+    }),
+    ruleName: text("rule_name").notNull(),
+    triggerType: automationTriggerEnum("trigger_type").notNull(),
+    status: automationRunStatusEnum("status").notNull(),
+    summary: text("summary").notNull(),
+    message: text("message"),
+    payload: jsonb("payload"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    index("automation_runs_project_time_idx").on(t.projectId, t.createdAt),
+    index("automation_runs_rule_time_idx").on(t.ruleId, t.createdAt),
+  ],
+);
+
+export const sprints = pgTable(
+  "sprints",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    goal: text("goal"),
+    startDate: date("start_date").notNull(),
+    endDate: date("end_date").notNull(),
+    capacity: integer("capacity").notNull().default(0),
+    status: sprintStatusEnum("status").notNull().default("planned"),
+    startedAt: timestamp("started_at"),
+    closedAt: timestamp("closed_at"),
+    createdById: uuid("created_by_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    index("sprints_project_idx").on(t.projectId),
+    uniqueIndex("sprints_one_active_per_project")
+      .on(t.projectId)
+      .where(sql`${t.status} = 'active'`),
+  ],
+);
+
+export const sprintMemberCapacities = pgTable(
+  "sprint_member_capacities",
+  {
+    sprintId: uuid("sprint_id")
+      .notNull()
+      .references(() => sprints.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    availableHours: doublePrecision("available_hours").notNull().default(0),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.sprintId, t.userId] }),
+    index("sprint_member_capacities_user_idx").on(t.userId),
+  ],
+);
+
+export const releases = pgTable(
+  "releases",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    description: text("description"),
+    status: releaseStatusEnum("status").notNull().default("planned"),
+    startDate: date("start_date"),
+    targetDate: date("target_date"),
+    releaseDate: date("release_date"),
+    createdById: uuid("created_by_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    index("releases_project_idx").on(t.projectId, t.targetDate),
+    uniqueIndex("releases_project_name_unique").on(t.projectId, t.name),
+  ],
+);
+
+export const workflowStatuses = pgTable(
+  "workflow_statuses",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    category: workflowStatusCategoryEnum("category").notNull(),
+    color: workflowStatusColorEnum("color").notNull().default("slate"),
+    position: doublePrecision("position").notNull().default(0),
+    wipLimit: integer("wip_limit"),
+    isDefault: boolean("is_default").notNull().default(false),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    index("workflow_statuses_project_idx").on(t.projectId, t.position),
+    uniqueIndex("workflow_statuses_project_name_unique").on(
+      t.projectId,
+      t.name,
+    ),
+    uniqueIndex("workflow_statuses_one_default")
+      .on(t.projectId)
+      .where(sql`${t.isDefault} = true`),
+  ],
+);
+
+export const workflowTransitions = pgTable(
+  "workflow_transitions",
+  {
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    fromStatusId: uuid("from_status_id")
+      .notNull()
+      .references(() => workflowStatuses.id, { onDelete: "cascade" }),
+    toStatusId: uuid("to_status_id")
+      .notNull()
+      .references(() => workflowStatuses.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.fromStatusId, t.toStatusId] }),
+    index("workflow_transitions_project_idx").on(t.projectId),
+  ],
 );
 
 export const milestones = pgTable(
@@ -134,10 +414,17 @@ export const tasks = pgTable(
   "tasks",
   {
     id: uuid("id").primaryKey().defaultRandom(),
+    taskNumber: integer("task_number"),
     projectId: uuid("project_id")
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),
     milestoneId: uuid("milestone_id").references(() => milestones.id, {
+      onDelete: "set null",
+    }),
+    sprintId: uuid("sprint_id").references(() => sprints.id, {
+      onDelete: "set null",
+    }),
+    releaseId: uuid("release_id").references(() => releases.id, {
       onDelete: "set null",
     }),
     // 子任务层级：自引用，空＝顶层任务。父任务删则子任务随之（cascade）。
@@ -145,7 +432,13 @@ export const tasks = pgTable(
     parentTaskId: uuid("parent_task_id").references((): AnyPgColumn => tasks.id, {
       onDelete: "cascade",
     }),
+    parentWorkItemId: uuid("parent_work_item_id").references(
+      (): AnyPgColumn => tasks.id,
+      { onDelete: "set null" },
+    ),
     title: text("title").notNull(),
+    workItemType: workItemTypeEnum("work_item_type").notNull().default("task"),
+    bugSeverity: bugSeverityEnum("bug_severity"),
     description: text("description"),
     completionNote: text("completion_note"),
     assigneeId: uuid("assignee_id").references(() => users.id, {
@@ -157,15 +450,152 @@ export const tasks = pgTable(
     startDate: date("start_date"),
     dueDate: date("due_date"),
     status: taskStatusEnum("status").notNull().default("todo"),
+    statusId: uuid("status_id").references(() => workflowStatuses.id, {
+      onDelete: "set null",
+    }),
     priority: taskPriorityEnum("priority").notNull().default("medium"),
+    estimate: integer("estimate"),
+    estimatedHours: doublePrecision("estimated_hours"),
+    backlogRank: doublePrecision("backlog_rank").notNull().default(0),
     sortOrder: doublePrecision("sort_order").notNull().default(0),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (t) => [
     index("tasks_project_idx").on(t.projectId),
+    index("tasks_project_number_idx").on(t.projectId, t.taskNumber),
+    uniqueIndex("tasks_project_number_unique")
+      .on(t.projectId, t.taskNumber)
+      .where(sql`${t.taskNumber} is not null`),
+    index("tasks_project_type_idx").on(t.projectId, t.workItemType),
+    index("tasks_status_idx").on(t.statusId),
     index("tasks_assignee_idx").on(t.assigneeId),
     index("tasks_parent_idx").on(t.parentTaskId),
+    index("tasks_parent_work_item_idx").on(t.parentWorkItemId),
+    index("tasks_sprint_idx").on(t.sprintId),
+    index("tasks_release_idx").on(t.releaseId),
+  ],
+);
+
+export const taskWorkLogs = pgTable(
+  "task_work_logs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    taskId: uuid("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    hours: doublePrecision("hours").notNull(),
+    workDate: date("work_date").notNull(),
+    note: text("note"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    index("task_work_logs_task_idx").on(t.taskId, t.workDate),
+    index("task_work_logs_user_idx").on(t.userId, t.workDate),
+  ],
+);
+
+export const externalEvents = pgTable(
+  "external_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    integrationId: uuid("integration_id")
+      .notNull()
+      .references(() => projectIntegrations.id, { onDelete: "cascade" }),
+    releaseId: uuid("release_id").references(() => releases.id, {
+      onDelete: "set null",
+    }),
+    provider: integrationProviderEnum("provider").notNull(),
+    eventType: text("event_type").notNull(),
+    action: text("action"),
+    title: text("title").notNull(),
+    url: text("url"),
+    actor: text("actor"),
+    branch: text("branch"),
+    commitSha: text("commit_sha"),
+    environment: text("environment"),
+    status: text("status"),
+    payload: jsonb("payload"),
+    occurredAt: timestamp("occurred_at").notNull().defaultNow(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    index("external_events_project_time_idx").on(t.projectId, t.createdAt),
+    index("external_events_integration_time_idx").on(
+      t.integrationId,
+      t.createdAt,
+    ),
+    index("external_events_release_idx").on(t.releaseId),
+  ],
+);
+
+export const externalEventTasks = pgTable(
+  "external_event_tasks",
+  {
+    eventId: uuid("event_id")
+      .notNull()
+      .references(() => externalEvents.id, { onDelete: "cascade" }),
+    taskId: uuid("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.eventId, t.taskId] }),
+    index("external_event_tasks_task_idx").on(t.taskId),
+  ],
+);
+
+export const savedTaskViews = pgTable(
+  "saved_task_views",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    filters: text("filters").notNull().default(""),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("saved_task_views_user_project_name_unique").on(
+      t.userId,
+      t.projectId,
+      t.name,
+    ),
+    index("saved_task_views_user_project_idx").on(t.userId, t.projectId),
+  ],
+);
+
+export const recentVisits = pgTable(
+  "recent_visits",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    taskId: uuid("task_id").references(() => tasks.id, {
+      onDelete: "cascade",
+    }),
+    label: text("label").notNull(),
+    path: text("path").notNull(),
+    visitedAt: timestamp("visited_at").notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("recent_visits_user_path_unique").on(t.userId, t.path),
+    index("recent_visits_user_visited_idx").on(t.userId, t.visitedAt),
   ],
 );
 
@@ -323,6 +753,121 @@ export const projectComments = pgTable(
     index("project_comments_project_idx").on(t.projectId, t.createdAt),
     index("project_comments_parent_idx").on(t.parentId, t.createdAt),
     index("project_comments_author_idx").on(t.authorId),
+  ],
+);
+
+export const notificationTypeEnum = pgEnum("notification_type", [
+  "task_mention",
+  "task_comment",
+  "task_status",
+  "automation",
+]);
+
+export const taskComments = pgTable(
+  "task_comments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    taskId: uuid("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    authorId: uuid("author_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    parentId: uuid("parent_id").references((): AnyPgColumn => taskComments.id, {
+      onDelete: "cascade",
+    }),
+    content: text("content").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    deletedAt: timestamp("deleted_at"),
+  },
+  (t) => [
+    index("task_comments_task_idx").on(t.taskId, t.createdAt),
+    index("task_comments_parent_idx").on(t.parentId, t.createdAt),
+  ],
+);
+
+export const taskCommentAttachments = pgTable(
+  "task_comment_attachments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    commentId: uuid("comment_id")
+      .notNull()
+      .references(() => taskComments.id, { onDelete: "cascade" }),
+    projectFileId: uuid("project_file_id").references(() => projectFiles.id, {
+      onDelete: "cascade",
+    }),
+    name: text("name").notNull(),
+    url: text("url").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [index("task_comment_attachments_comment_idx").on(t.commentId)],
+);
+
+export const taskCommentMentions = pgTable(
+  "task_comment_mentions",
+  {
+    commentId: uuid("comment_id")
+      .notNull()
+      .references(() => taskComments.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.commentId, t.userId] }),
+    index("task_comment_mentions_user_idx").on(t.userId),
+  ],
+);
+
+export const taskWatchers = pgTable(
+  "task_watchers",
+  {
+    taskId: uuid("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.taskId, t.userId] }),
+    index("task_watchers_user_idx").on(t.userId),
+  ],
+);
+
+export const notifications = pgTable(
+  "notifications",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    taskId: uuid("task_id").references(() => tasks.id, {
+      onDelete: "cascade",
+    }),
+    commentId: uuid("comment_id").references(() => taskComments.id, {
+      onDelete: "cascade",
+    }),
+    actorId: uuid("actor_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    type: notificationTypeEnum("type").notNull(),
+    title: text("title").notNull(),
+    body: text("body"),
+    readAt: timestamp("read_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    index("notifications_user_idx").on(t.userId, t.readAt, t.createdAt),
+    index("notifications_task_idx").on(t.taskId),
   ],
 );
 
