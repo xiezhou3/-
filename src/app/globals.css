@@ -1,0 +1,214 @@
+@import "tailwindcss";
+
+/* ============================================================
+   AgileCampus 设计系统 · 「校园协作工作台」
+   冷净底 · 松石绿主色 · 赭石点缀 · 衬线标题 + Geist 正文
+   ============================================================ */
+
+@theme {
+  /* 中性 · 冷净纸面（比传统米色更适合长时间工作） */
+  --color-canvas: #f3f6f5;
+  --color-surface: #ffffff;
+  --color-sunken: #eaf0ee;
+  --color-ink: #17211e;
+  --color-ink-soft: #4c5b56;
+  --color-ink-faint: #82908b;
+  --color-line: #dfe7e4;
+  --color-line-strong: #c8d6d1;
+
+  /* 主色 · 松石绿（清晰、克制、有行动感） */
+  --color-primary: #0f665e;
+  --color-primary-hover: #0a514b;
+  --color-primary-soft: #e2f1ee;
+  --color-primary-ring: #a7d4cc;
+
+  /* 点缀 · 赭石（用于提醒与重点动作） */
+  --color-accent: #bd652b;
+  --color-accent-soft: #faebdf;
+
+  /* 语义 · 看板列 */
+  --color-todo: #778781;
+  --color-doing: #0f665e;
+  --color-done: #2f7b57;
+
+  /* 语义 · 优先级 */
+  --color-high: #b4423b;
+  --color-high-soft: #f8e6e3;
+  --color-medium: #a56b25;
+  --color-medium-soft: #f7edd9;
+  --color-low: #6e7c77;
+  --color-low-soft: #e9efed;
+
+  /* 字体 */
+  --font-sans: var(--font-geist), ui-sans-serif, system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-display: var(--font-fraunces), Georgia, "Songti SC", serif;
+
+  /* 形状 */
+  --radius-card: 0.5rem;
+  --radius-field: 0.4375rem;
+}
+
+:root {
+  --shadow-card: 0 1px 2px rgba(18, 33, 29, 0.045), 0 8px 24px -14px rgba(18, 33, 29, 0.15);
+  --shadow-pop: 0 6px 14px rgba(18, 33, 29, 0.08), 0 22px 48px -24px rgba(18, 33, 29, 0.28);
+}
+
+* {
+  border-color: var(--color-line);
+}
+
+html {
+  background: var(--color-canvas);
+}
+
+body {
+  background-color: var(--color-canvas);
+  background-image:
+    linear-gradient(rgba(15, 102, 94, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(15, 102, 94, 0.025) 1px, transparent 1px);
+  background-size: 32px 32px;
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-feature-settings: "cv11", "ss01";
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* 衬线标题工具类 */
+.font-display {
+  font-family: var(--font-display);
+  letter-spacing: 0;
+}
+
+::selection {
+  background: var(--color-primary-ring);
+  color: var(--color-ink);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+@layer components {
+  /* 卡片面 */
+  .ac-card {
+    border-radius: var(--radius-card);
+    border: 1px solid var(--color-line);
+    background-color: var(--color-surface);
+    box-shadow: var(--shadow-card);
+  }
+
+  .ac-panel {
+    border-radius: var(--radius-card);
+    border: 1px solid var(--color-line);
+    background-color: rgba(255, 255, 255, 0.88);
+    box-shadow: var(--shadow-card);
+    backdrop-filter: blur(12px);
+  }
+
+  /* 表单控件统一 */
+  .ac-field {
+    width: 100%;
+    border-radius: var(--radius-field);
+    border: 1px solid var(--color-line-strong);
+    background-color: var(--color-surface);
+    padding: 0.5rem 0.7rem;
+    font-size: 0.875rem;
+    color: var(--color-ink);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+  }
+  .ac-field:hover:not(:disabled) {
+    border-color: var(--color-line-strong);
+  }
+  .ac-field::placeholder {
+    color: var(--color-ink-faint);
+  }
+  .ac-field:focus {
+    outline: none;
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary-ring) 55%, transparent);
+  }
+
+  /* 主按钮 */
+  .ac-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.375rem;
+    border-radius: var(--radius-field);
+    background-color: var(--color-primary);
+    padding: 0.5rem 1rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: #fff;
+    box-shadow: 0 1px 2px rgba(18, 33, 29, 0.14);
+    transition: background-color 0.15s ease, transform 0.05s ease, box-shadow 0.15s ease;
+  }
+  .ac-btn:hover:not(:disabled) {
+    background-color: var(--color-primary-hover);
+    box-shadow: 0 3px 10px -2px rgba(15, 102, 94, 0.36);
+  }
+  .ac-btn:active:not(:disabled) {
+    transform: translateY(0.5px);
+  }
+  .ac-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  /* 次按钮 / 幽灵 */
+  .ac-btn-ghost {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    border-radius: var(--radius-field);
+    border: 1px solid var(--color-line-strong);
+    background-color: var(--color-surface);
+    padding: 0.4rem 0.85rem;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: var(--color-ink-soft);
+    transition: border-color 0.15s ease, color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+  }
+  .ac-btn-ghost:hover {
+    border-color: var(--color-primary);
+    color: var(--color-primary);
+    background-color: var(--color-primary-soft);
+    box-shadow: 0 1px 2px rgba(18, 33, 29, 0.05);
+  }
+
+  /* 标签徽章 */
+  .ac-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    border-radius: 999px;
+    padding: 0.1rem 0.55rem;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0;
+  }
+
+  .ac-scrollbar {
+    scrollbar-color: var(--color-line-strong) transparent;
+    scrollbar-width: thin;
+  }
+  .ac-scrollbar::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .ac-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .ac-scrollbar::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: 999px;
+    background: var(--color-line-strong);
+    background-clip: padding-box;
+  }
+  .ac-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: var(--color-ink-faint);
+    background-clip: padding-box;
+  }
+}
